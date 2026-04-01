@@ -1,0 +1,86 @@
+import { NextRequest, NextResponse } from "next/server";
+import { connectDB, SessionModel } from "@/lib/db";
+import { generateAndFundWallet } from "@/lib/xrpl/wallet";
+
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const MAX_EMAIL_LENGTH = 254;
+
+function sanitizeEmail(raw: unknown): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed.length === 0 || trimmed.length > MAX_EMAIL_LENGTH) return null;
+  if (!EMAIL_REGEX.test(trimmed)) return null;
+  return trimmed;
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const email = sanitizeEmail(body.email);
+
+    if (!email) {
+      return NextResponse.json(
+        { error: "A valid email address is required" },
+        { status: 400 }
+      );
+    }
+
+    await connectDB();
+
+    const existing = await SessionModel.findOne({ email });
+    if (existing) {
+      return NextResponse.json({ session: existing });
+    }
+
+    const roles = ["broker", "depositor", "borrower"] as const;
+    const wallets = await Promise.all(
+      roles.map(async (role) => {
+        const wallet = await generateAndFundWallet();
+        return { ...wallet, role };
+      })
+    );
+
+    const session = await SessionModel.create({ email, wallets });
+
+    return NextResponse.json({ session }, { status: 201 });
+  } catch (error) {
+    console.error("Session creation error:", error);
+    return NextResponse.json(
+      { error: "Failed to create session" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const raw = request.nextUrl.searchParams.get("email");
+    const email = sanitizeEmail(raw);
+
+    if (!email) {
+      return NextResponse.json(
+        { error: "A valid email address is required" },
+        { status: 400 }
+      );
+    }
+
+    await connectDB();
+
+    const session = await SessionModel.findOne({ email });
+
+    if (!session) {
+      return NextResponse.json(
+        { error: "Session not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ session });
+  } catch (error) {
+    console.error("Session fetch error:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch session" },
+      { status: 500 }
+    );
+  }
+}
