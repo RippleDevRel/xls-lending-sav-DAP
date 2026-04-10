@@ -19,6 +19,7 @@ const walletSchema = new Schema(
 const sessionSchema = new Schema(
   {
     email: { type: String, required: true, unique: true, lowercase: true },
+    passwordHash: { type: String, required: true },
     wallets: { type: [walletSchema], required: true },
     vaultId: { type: String },
     loanBrokerId: { type: String },

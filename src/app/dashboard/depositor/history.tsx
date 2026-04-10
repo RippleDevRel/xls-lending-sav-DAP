@@ -63,12 +63,13 @@ export function DepositHistory({
     fetchHistory();
   }, [fetchHistory]);
 
-  // Calculate PNL: current vault value of shares vs net invested
-  const currentValue = parseInt(vaultAssetsTotal || "0");
-  const netInvested = parseInt(summary?.netInvested || "0");
-  const pnl = currentValue - netInvested;
+  // Calculate PNL: total withdrawn + current position - total deposited
+  const totalDeposited = parseInt(summary?.totalDeposited || "0");
+  const totalWithdrawn = parseInt(summary?.totalWithdrawn || "0");
+  const currentPosition = parseInt(vaultAssetsTotal || "0");
+  const pnl = totalWithdrawn + currentPosition - totalDeposited;
   const pnlPercent =
-    netInvested > 0 ? ((pnl / netInvested) * 100).toFixed(2) : "0.00";
+    totalDeposited > 0 ? ((pnl / totalDeposited) * 100).toFixed(2) : "0.00";
   const pnlPositive = pnl >= 0;
 
   if (history.length === 0 && !summary) {
@@ -107,7 +108,7 @@ export function DepositHistory({
             </div>
             <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
               <p className="text-[11px] font-medium text-muted-foreground">
-                Current Value
+                Vault Position
               </p>
               <AmountDisplay
                 drops={vaultAssetsTotal || "0"}

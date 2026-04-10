@@ -20,11 +20,8 @@ export function FeeBreakdown({
   const principal = parseInt(principalRequested);
   const totalInterest = Math.floor((principal * interestRate) / 10000);
   const totalServiceFees = parseInt(serviceFee) * paymentTotal;
-  const totalCost =
-    principal + totalInterest + parseInt(originationFee) + totalServiceFees;
-  const periodicPayment = Math.ceil(
-    (principal + totalInterest + totalServiceFees) / paymentTotal
-  );
+  const totalToRepay = principal + totalInterest + totalServiceFees;
+  const periodicPayment = Math.ceil(totalToRepay / paymentTotal);
 
   return (
     <div className="rounded-lg bg-muted/50 p-4 space-y-2 text-sm">
@@ -34,21 +31,29 @@ export function FeeBreakdown({
       <Row label={`Interest (${(interestRate / 100).toFixed(1)}%)`}>
         <AmountDisplay drops={totalInterest.toString()} />
       </Row>
-      <Row label="Origination fee">
-        <AmountDisplay drops={originationFee} />
-      </Row>
-      <Row label={`Service fees (${paymentTotal}x)`}>
+      <Row label={`Service fees (${paymentTotal}×)`}>
         <AmountDisplay drops={totalServiceFees.toString()} />
       </Row>
       <Separator />
-      <Row label="Total cost" className="font-medium text-foreground">
-        <AmountDisplay drops={totalCost.toString()} />
+      <Row label="Total to repay" className="font-medium text-foreground">
+        <AmountDisplay drops={totalToRepay.toString()} />
       </Row>
-      <Row label="Per payment" className="text-muted-foreground">
+      <Row label="Est. per payment" className="text-muted-foreground">
         <span className="font-mono">
-          {(periodicPayment / DROPS_PER_XRP).toFixed(2)} XRP
+          ~{(periodicPayment / DROPS_PER_XRP).toFixed(2)} XRP
         </span>
       </Row>
+      {parseInt(originationFee) > 0 && (
+        <>
+          <Separator />
+          <Row label="Origination fee (deducted from principal)" className="text-muted-foreground text-xs">
+            <AmountDisplay drops={originationFee} />
+          </Row>
+          <Row label="Borrower receives" className="text-muted-foreground text-xs">
+            <AmountDisplay drops={(principal - parseInt(originationFee)).toString()} />
+          </Row>
+        </>
+      )}
     </div>
   );
 }

@@ -14,7 +14,7 @@ interface SessionContextValue {
   loading: boolean;
   initializing: boolean;
   error: string | null;
-  login: (email: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -38,6 +38,16 @@ export function useSessionProvider(): SessionContextValue {
   const [error, setError] = useState<string | null>(null);
 
   const fetchSession = useCallback(async (email: string) => {
+    // Check if auth cookie is still valid by hitting a protected route
+    const authCheck = await fetch("/api/session/balances?sessionId=check", {
+      method: "GET",
+    });
+    if (authCheck.status === 401) {
+      // Cookie expired — clear localStorage, user must re-login
+      localStorage.removeItem("xls66-email");
+      return;
+    }
+
     const res = await fetch(`/api/session?email=${encodeURIComponent(email)}`);
     if (res.ok) {
       const data = await res.json();
@@ -54,14 +64,14 @@ export function useSessionProvider(): SessionContextValue {
     }
   }, [fetchSession]);
 
-  const login = useCallback(async (email: string) => {
+  const login = useCallback(async (email: string, password: string) => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create session");
@@ -74,7 +84,8 @@ export function useSessionProvider(): SessionContextValue {
     }
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    await fetch("/api/session/logout", { method: "POST" });
     localStorage.removeItem("xls66-email");
     setSession(null);
   }, []);

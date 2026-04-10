@@ -41,7 +41,9 @@ const roles = [
 
 export default function Home() {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [emailError, setEmailError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const [agreed, setAgreed] = useState(false);
   const { login, loading, initializing, session, error } = useSession();
   const router = useRouter();
@@ -72,10 +74,21 @@ export default function Home() {
     return true;
   }
 
+  function validatePassword(value: string): boolean {
+    if (value.length < 6) {
+      setPasswordError("Password must be at least 6 characters");
+      return false;
+    }
+    setPasswordError("");
+    return true;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!validateEmail(email)) return;
-    await login(email.trim());
+    const emailValid = validateEmail(email);
+    const passwordValid = validatePassword(password);
+    if (!emailValid || !passwordValid) return;
+    await login(email.trim(), password);
     router.push("/dashboard");
   }
 
@@ -165,6 +178,29 @@ export default function Home() {
                     )}
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="password" className="text-sm">
+                      Password
+                    </Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="Min. 6 characters"
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (passwordError) validatePassword(e.target.value);
+                      }}
+                      onBlur={() => password && validatePassword(password)}
+                      className={`h-11 ${passwordError ? "border-destructive" : ""}`}
+                      maxLength={128}
+                      required
+                    />
+                    {passwordError && (
+                      <p className="text-xs text-destructive">{passwordError}</p>
+                    )}
+                  </div>
+
                   <div className="flex items-start gap-2.5">
                     <input
                       type="checkbox"
@@ -209,9 +245,9 @@ export default function Home() {
                     shimmerColor="hsl(213, 100%, 60%)"
                     shimmerSize="0.1em"
                     background="hsl(213, 100%, 40%)"
-                    disabled={loading || !agreed}
+                    disabled={loading || !agreed || !password}
                     onClick={(e) => {
-                      if (loading || !agreed) {
+                      if (loading || !agreed || !password) {
                         e.preventDefault();
                         return;
                       }
