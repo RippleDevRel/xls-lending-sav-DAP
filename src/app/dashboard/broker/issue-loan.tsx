@@ -30,12 +30,15 @@ import {
   DEFAULT_SERVICE_FEE,
 } from "@/lib/constants";
 
+import type { IssuedToken } from "@/types/session";
+
 interface IssueLoanProps {
   sessionId: string;
   vaultAssetTotal?: string;
   vaultAssetsMaximum?: string;
   brokerDebtMaximum?: string;
   brokerDebtTotal?: string;
+  issuedToken?: IssuedToken;
   onCreated: (txHash?: string) => void;
   onError: (message: string) => void;
   onPending: (message: string) => void;
@@ -60,10 +63,13 @@ export function IssueLoan({
   vaultAssetsMaximum,
   brokerDebtMaximum,
   brokerDebtTotal,
+  issuedToken,
   onCreated,
   onError,
   onPending,
 }: IssueLoanProps) {
+  const isToken = !!issuedToken;
+  const unit = isToken ? "TUSD" : "XRP";
   const [loading, setLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -93,15 +99,15 @@ export function IssueLoan({
   // Metadata
   const [loanName, setLoanName] = useState("");
 
-  const principalDrops = String(
-    Math.round(parseFloat(principalXrp || "0") * DROPS_PER_XRP)
-  );
-  const originationFeeDrops = String(
-    Math.round(parseFloat(originationFee || "0") * DROPS_PER_XRP)
-  );
-  const serviceFeeDrops = String(
-    Math.round(parseFloat(serviceFee || "0") * DROPS_PER_XRP)
-  );
+  const principalDrops = isToken
+    ? String(parseFloat(principalXrp || "0"))
+    : String(Math.round(parseFloat(principalXrp || "0") * DROPS_PER_XRP));
+  const originationFeeDrops = isToken
+    ? String(parseFloat(originationFee || "0"))
+    : String(Math.round(parseFloat(originationFee || "0") * DROPS_PER_XRP));
+  const serviceFeeDrops = isToken
+    ? String(parseFloat(serviceFee || "0"))
+    : String(Math.round(parseFloat(serviceFee || "0") * DROPS_PER_XRP));
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -120,12 +126,16 @@ export function IssueLoan({
         serviceFee: serviceFeeDrops,
       };
 
-      // Advanced fees (drops) — only send if > 0
+      // Advanced fees — only send if > 0
       if (latePaymentFee && parseFloat(latePaymentFee) > 0) {
-        body.latePaymentFee = String(Math.round(parseFloat(latePaymentFee) * DROPS_PER_XRP));
+        body.latePaymentFee = isToken
+          ? String(parseFloat(latePaymentFee))
+          : String(Math.round(parseFloat(latePaymentFee) * DROPS_PER_XRP));
       }
       if (closePaymentFee && parseFloat(closePaymentFee) > 0) {
-        body.closePaymentFee = String(Math.round(parseFloat(closePaymentFee) * DROPS_PER_XRP));
+        body.closePaymentFee = isToken
+          ? String(parseFloat(closePaymentFee))
+          : String(Math.round(parseFloat(closePaymentFee) * DROPS_PER_XRP));
       }
       // Rates in 1/10th basis points (% * 1000) — only send if > 0
       if (overpaymentFee && parseFloat(overpaymentFee) > 0) {
@@ -158,22 +168,27 @@ export function IssueLoan({
     }
   }
 
-  // Pre-checks
+  // Pre-checks — compare in the same units
+  // For XRP: principalDrops is in drops, on-chain values are in drops
+  // For tokens: principalDrops is in native units, on-chain values are in native units
   const warnings: string[] = [];
-  const principalNum = parseInt(principalDrops);
+  const principalNum = parseFloat(principalDrops);
 
-  if (vaultAssetTotal !== undefined && principalNum > parseInt(vaultAssetTotal || "0")) {
+  if (vaultAssetTotal !== undefined && principalNum > parseFloat(vaultAssetTotal || "0")) {
+    const vaultDisplay = isToken
+      ? parseFloat(vaultAssetTotal || "0").toFixed(2)
+      : (parseInt(vaultAssetTotal || "0") / DROPS_PER_XRP).toFixed(2);
     warnings.push(
-      `Insufficient vault liquidity: need ${parseFloat(principalXrp)} XRP but vault has ${(parseInt(vaultAssetTotal || "0") / DROPS_PER_XRP).toFixed(2)} XRP available. Deposit more via the Depositor tab.`
+      `Insufficient vault liquidity: need ${parseFloat(principalXrp)} ${unit} but vault has ${vaultDisplay} ${unit} available. Deposit more via the Depositor tab.`
     );
   }
 
   if (vaultAssetsMaximum && vaultAssetsMaximum !== "0") {
-    const cap = parseInt(vaultAssetsMaximum);
-    const total = parseInt(vaultAssetTotal || "0");
-    if (total > 0 && principalNum > cap) {
+    const cap = parseFloat(vaultAssetsMaximum);
+    if (principalNum > cap) {
+      const capDisplay = isToken ? cap.toLocaleString() : (cap / DROPS_PER_XRP).toLocaleString();
       warnings.push(
-        `Vault deposit cap is ${(cap / DROPS_PER_XRP).toLocaleString()} XRP. The principal exceeds this limit.`
+        `Vault deposit cap is ${capDisplay} ${unit}. The principal exceeds this limit.`
       );
     }
   }
@@ -182,8 +197,10 @@ export function IssueLoan({
     const maxDebt = Number(brokerDebtMaximum);
     const currentDebt = Number(brokerDebtTotal || "0");
     if (currentDebt + principalNum > maxDebt) {
+      const maxDebtDisplay = isToken ? maxDebt.toLocaleString() : (maxDebt / DROPS_PER_XRP).toLocaleString();
+      const currentDebtDisplay = isToken ? currentDebt.toFixed(2) : (currentDebt / DROPS_PER_XRP).toFixed(2);
       warnings.push(
-        `Broker max debt is ${(maxDebt / DROPS_PER_XRP).toLocaleString()} XRP. Current debt: ${(currentDebt / DROPS_PER_XRP).toFixed(2)} XRP. This loan would exceed the limit.`
+        `Broker max debt is ${maxDebtDisplay} ${unit}. Current debt: ${currentDebtDisplay} ${unit}. This loan would exceed the limit.`
       );
     }
   }
@@ -218,7 +235,7 @@ export function IssueLoan({
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
-                  <Label htmlFor="principal">Principal (XRP)</Label>
+                  <Label htmlFor="principal">Principal ({unit})</Label>
                   <InfoTip text="The loan amount requested by the borrower. Must not exceed vault liquidity." />
                 </div>
                 <Input
@@ -317,7 +334,7 @@ export function IssueLoan({
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
-                  <Label htmlFor="orig-fee">Origination fee (XRP)</Label>
+                  <Label htmlFor="orig-fee">Origination fee ({unit})</Label>
                   <InfoTip text="One-time fee paid to the broker when the loan is created. Deducted from the principal." />
                 </div>
                 <Input
@@ -331,7 +348,7 @@ export function IssueLoan({
               </div>
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
-                  <Label htmlFor="svc-fee">Service fee (XRP)</Label>
+                  <Label htmlFor="svc-fee">Service fee ({unit})</Label>
                   <InfoTip text="Fee paid to the broker with each loan payment. Charged per contractual installment even if repaid early." />
                 </div>
                 <Input
@@ -366,7 +383,7 @@ export function IssueLoan({
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5">
-                    <Label htmlFor="late-fee" className="text-xs">Late payment fee (XRP)</Label>
+                    <Label htmlFor="late-fee" className="text-xs">Late payment fee ({unit})</Label>
                     <InfoTip text="Fixed fee charged when a payment is made after the due date but within the grace period." />
                   </div>
                   <Input
@@ -381,7 +398,7 @@ export function IssueLoan({
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5">
-                    <Label htmlFor="close-fee" className="text-xs">Early close fee (XRP)</Label>
+                    <Label htmlFor="close-fee" className="text-xs">Early close fee ({unit})</Label>
                     <InfoTip text="Fee charged when the borrower repays the entire loan before all installments are due." />
                   </div>
                   <Input
@@ -478,6 +495,7 @@ export function IssueLoan({
             paymentTotal={paymentTotal}
             originationFee={originationFeeDrops}
             serviceFee={serviceFeeDrops}
+            token={isToken ? "TUSD" : undefined}
           />
 
           {warnings.length > 0 && (

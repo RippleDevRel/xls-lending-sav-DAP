@@ -2,13 +2,22 @@ import { Client } from "xrpl";
 import { XRPL_NETWORK_URL } from "@/lib/constants";
 
 let clientInstance: Client | null = null;
+let connectionPromise: Promise<Client> | null = null;
 
 export async function getXrplClient(): Promise<Client> {
-  if (!clientInstance || !clientInstance.isConnected()) {
-    clientInstance = new Client(XRPL_NETWORK_URL);
-    await clientInstance.connect();
+  if (clientInstance?.isConnected()) return clientInstance;
+
+  if (!connectionPromise) {
+    connectionPromise = (async () => {
+      const client = new Client(XRPL_NETWORK_URL);
+      await client.connect();
+      clientInstance = client;
+      connectionPromise = null;
+      return client;
+    })();
   }
-  return clientInstance;
+
+  return connectionPromise;
 }
 
 export async function disconnectXrplClient(): Promise<void> {

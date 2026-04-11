@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
-import { validateObjectId, validateDrops, validateNumber } from "@/lib/validation";
+import { validateObjectId, validateDrops, validateAmount, validateNumber } from "@/lib/validation";
 import { connectDB, SessionModel, LoanModel } from "@/lib/db";
 import { walletFromSeed } from "@/lib/xrpl/wallet";
 import { buildLoanSet, signAndSubmitLoanSet } from "@/lib/xrpl/loan";
@@ -50,17 +50,24 @@ export async function POST(request: NextRequest) {
     const brokerWallet = walletFromSeed(brokerWalletData.seed);
     const borrowerWallet = walletFromSeed(borrowerWalletData.seed);
 
-    const principalRequested = validateDrops(body.principalRequested) || "20000000";
+    // Use validateAmount for tokens (decimal), validateDrops for XRP (integer)
+    const isToken = !!session.issuedToken;
+    const valAmt = isToken ? validateAmount : validateDrops;
+    const defaultPrincipal = isToken ? "20" : "20000000";
+    const defaultOrigFee = isToken ? "1" : DEFAULT_ORIGINATION_FEE;
+    const defaultSvcFee = isToken ? "0.5" : DEFAULT_SERVICE_FEE;
+
+    const principalRequested = valAmt(body.principalRequested) || defaultPrincipal;
     const interestRate = validateNumber(body.interestRate, 0, 50000) ?? DEFAULT_INTEREST_RATE;
     const paymentTotal = validateNumber(body.paymentTotal, 1, 120) ?? DEFAULT_PAYMENT_TOTAL;
     const paymentInterval = validateNumber(body.paymentInterval, 60, 31536000) ?? DEFAULT_PAYMENT_INTERVAL;
     const gracePeriod = validateNumber(body.gracePeriod, 1, 31536000) ?? DEFAULT_GRACE_PERIOD;
-    const originationFee = validateDrops(body.originationFee) || DEFAULT_ORIGINATION_FEE;
-    const serviceFee = validateDrops(body.serviceFee) || DEFAULT_SERVICE_FEE;
+    const originationFee = valAmt(body.originationFee) || defaultOrigFee;
+    const serviceFee = valAmt(body.serviceFee) || defaultSvcFee;
 
     // Optional advanced fields — only include if > 0 (ledger rejects 0 values)
-    const latePaymentFee = validateDrops(body.latePaymentFee) || undefined;
-    const closePaymentFee = validateDrops(body.closePaymentFee) || undefined;
+    const latePaymentFee = valAmt(body.latePaymentFee) || undefined;
+    const closePaymentFee = valAmt(body.closePaymentFee) || undefined;
     const overpaymentFee = validateNumber(body.overpaymentFee, 1, 100000) ?? undefined;
     const lateInterestRate = validateNumber(body.lateInterestRate, 1, 100000) ?? undefined;
     const closeInterestRate = validateNumber(body.closeInterestRate, 1, 100000) ?? undefined;

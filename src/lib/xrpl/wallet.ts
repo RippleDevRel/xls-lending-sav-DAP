@@ -1,5 +1,6 @@
 import { Wallet } from "xrpl";
 import { getXrplClient } from "./client";
+import { XRPL_FAUCET_URL } from "@/lib/constants";
 
 export async function generateAndFundWallet(): Promise<{
   address: string;
@@ -9,7 +10,10 @@ export async function generateAndFundWallet(): Promise<{
   balance: string;
 }> {
   const client = await getXrplClient();
-  const { wallet, balance } = await client.fundWallet();
+  const { wallet, balance } = await client.fundWallet(null, {
+    faucetHost: new URL(XRPL_FAUCET_URL).host,
+    faucetPath: new URL(XRPL_FAUCET_URL).pathname,
+  });
   return {
     address: wallet.classicAddress,
     publicKey: wallet.publicKey,

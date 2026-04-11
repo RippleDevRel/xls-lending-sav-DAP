@@ -27,7 +27,7 @@ const roles = [
     icon: PiggyBank,
     title: "Depositor",
     description:
-      "Deposit XRP into vaults to provide liquidity and earn yield from loan interest.",
+      "Deposit assets into vaults to provide liquidity and earn yield from loan interest.",
     step: "Step 2",
   },
   {
@@ -150,7 +150,7 @@ export default function Home() {
                 <div>
                   <h2 className="text-lg font-semibold mb-1">Start Demo</h2>
                   <p className="text-sm text-muted-foreground">
-                    Three wallets will be created and funded on Devnet.
+                    Four wallets will be created and funded on Devnet.
                   </p>
                 </div>
 
@@ -274,7 +274,7 @@ export default function Home() {
                       animate={{ opacity: 1 }}
                       transition={{ delay: 0.5 }}
                     >
-                      ~15 seconds — funding 3 wallets via devnet faucet
+                      ~20 seconds — funding 4 wallets via devnet faucet
                     </motion.p>
                   )}
                 </form>

@@ -7,11 +7,9 @@ import {
   submitTransaction,
   getVaultInfo,
 } from "@/lib/xrpl/vault";
+import { setupIOU, setupMPT } from "@/lib/xrpl/issuer";
 import {
   validateObjectId,
-  validateXrplAddress,
-  validateCurrencyCode,
-  validateMptIssuanceId,
   validateDrops,
   sanitizeString,
 } from "@/lib/validation";
@@ -31,39 +29,6 @@ export async function POST(request: NextRequest) {
     if (raw.assetsMaximum) {
       const valid = validateDrops(raw.assetsMaximum);
       if (valid) vaultOptions.assetsMaximum = valid;
-    }
-
-    // Validate asset
-    if (raw.asset?.type === "IOU") {
-      const currency = validateCurrencyCode(raw.asset.currency);
-      const issuer = validateXrplAddress(raw.asset.issuer);
-      if (!currency || !issuer) {
-        return NextResponse.json(
-          { error: "Invalid IOU currency code or issuer address" },
-          { status: 400 }
-        );
-      }
-      vaultOptions.asset = { type: "IOU", currency, issuer };
-    } else if (raw.asset?.type === "MPT") {
-      const mptId = validateMptIssuanceId(raw.asset.mptIssuanceId);
-      if (!mptId) {
-        return NextResponse.json(
-          { error: "Invalid MPT issuance ID (48 hex chars expected)" },
-          { status: 400 }
-        );
-      }
-      vaultOptions.asset = { type: "MPT", mptIssuanceId: mptId };
-    }
-
-    // Sanitize share metadata
-    if (raw.shareMetadata) {
-      const sm: Record<string, string> = {};
-      if (raw.shareMetadata.ticker) sm.ticker = sanitizeString(raw.shareMetadata.ticker, 6);
-      if (raw.shareMetadata.name) sm.name = sanitizeString(raw.shareMetadata.name, 64);
-      if (raw.shareMetadata.description) sm.description = sanitizeString(raw.shareMetadata.description, 256);
-      if (raw.shareMetadata.icon) sm.icon = sanitizeString(raw.shareMetadata.icon, 128);
-      if (raw.shareMetadata.issuerName) sm.issuerName = sanitizeString(raw.shareMetadata.issuerName, 64);
-      if (Object.keys(sm).length > 0) vaultOptions.shareMetadata = sm;
     }
 
     if (!sessionId) {
@@ -93,6 +58,82 @@ export async function POST(request: NextRequest) {
     }
 
     const brokerWallet = walletFromSeed(brokerWalletData.seed);
+
+    // Auto-setup IOU/MPT if requested
+    const assetType = raw.asset?.type;
+    let assetRecord: { currency: string; issuer?: string; mptIssuanceId?: string } = { currency: "XRP" };
+
+    if (assetType === "IOU" || assetType === "MPT") {
+      const issuerWalletData = session.wallets.find(
+        (w: { role: string }) => w.role === "issuer"
+      );
+      const depositorWalletData = session.wallets.find(
+        (w: { role: string }) => w.role === "depositor"
+      );
+      const borrowerWalletData = session.wallets.find(
+        (w: { role: string }) => w.role === "borrower"
+      );
+
+      if (!issuerWalletData || !depositorWalletData || !borrowerWalletData) {
+        return NextResponse.json(
+          { error: "Missing wallets for IOU/MPT setup" },
+          { status: 400 }
+        );
+      }
+
+      const issuerWallet = walletFromSeed(issuerWalletData.seed);
+      const depositorWallet = walletFromSeed(depositorWalletData.seed);
+      const borrowerWallet = walletFromSeed(borrowerWalletData.seed);
+
+      if (assetType === "IOU") {
+        const iouResult = await setupIOU(
+          issuerWallet,
+          brokerWallet,
+          depositorWallet,
+          borrowerWallet
+        );
+        vaultOptions.asset = {
+          type: "IOU",
+          currency: iouResult.currency,
+          issuer: iouResult.issuer,
+        };
+        assetRecord = { currency: iouResult.currency, issuer: iouResult.issuer };
+
+        // Save issued token to session
+        await SessionModel.findByIdAndUpdate(sessionId, {
+          issuedToken: { type: "IOU", currency: iouResult.currency, issuer: iouResult.issuer },
+        });
+      } else {
+        const mptResult = await setupMPT(
+          issuerWallet,
+          brokerWallet,
+          depositorWallet,
+          borrowerWallet
+        );
+        vaultOptions.asset = {
+          type: "MPT",
+          mptIssuanceId: mptResult.mptIssuanceId,
+        };
+        assetRecord = { currency: "TUSD", mptIssuanceId: mptResult.mptIssuanceId };
+
+        // Save issued token to session
+        await SessionModel.findByIdAndUpdate(sessionId, {
+          issuedToken: { type: "MPT", mptIssuanceId: mptResult.mptIssuanceId },
+        });
+      }
+    }
+
+    // Sanitize share metadata
+    if (raw.shareMetadata) {
+      const sm: Record<string, string> = {};
+      if (raw.shareMetadata.ticker) sm.ticker = sanitizeString(raw.shareMetadata.ticker, 6);
+      if (raw.shareMetadata.name) sm.name = sanitizeString(raw.shareMetadata.name, 64);
+      if (raw.shareMetadata.description) sm.description = sanitizeString(raw.shareMetadata.description, 256);
+      if (raw.shareMetadata.icon) sm.icon = sanitizeString(raw.shareMetadata.icon, 128);
+      if (raw.shareMetadata.issuerName) sm.issuerName = sanitizeString(raw.shareMetadata.issuerName, 64);
+      if (Object.keys(sm).length > 0) vaultOptions.shareMetadata = sm;
+    }
+
     const tx = buildVaultCreate(brokerWallet.classicAddress, vaultOptions || {});
     const result = await submitTransaction(brokerWallet, tx);
 
@@ -134,7 +175,7 @@ export async function POST(request: NextRequest) {
       sessionId: session._id,
       vaultId,
       ownerAddress: brokerWallet.classicAddress,
-      asset: { currency: "XRP" },
+      asset: assetRecord,
       totalDeposited,
       sharesMinted,
       status: "active",

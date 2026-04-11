@@ -157,12 +157,15 @@ export function VaultDetails({ vaultId, sessionId, loanBrokerId, onDeleted }: Va
     } catch { /* invalid */ }
   }
 
+  const vaultAsset = vault?.Asset as Record<string, string> | undefined;
+  const isTokenVault = !!(vaultAsset && (vaultAsset.issuer || vaultAsset.mpt_issuance_id));
+  const tokenLabel = isTokenVault ? "TUSD" : undefined;
+
   const assetLabel = (() => {
-    const a = vault?.Asset as Record<string, string> | undefined;
-    if (!a) return "XRP";
-    if (a.currency === "XRP" || (!a.currency && !a.mpt_issuance_id)) return "XRP";
-    if (a.mpt_issuance_id) return `MPT:${a.mpt_issuance_id.slice(0, 8)}...`;
-    return a.currency || "XRP";
+    if (!vaultAsset) return "XRP";
+    if (vaultAsset.currency === "XRP" || (!vaultAsset.currency && !vaultAsset.mpt_issuance_id)) return "XRP";
+    if (vaultAsset.mpt_issuance_id) return "TUSD (MPT)";
+    return "TUSD (IOU)";
   })();
 
   return (
@@ -198,23 +201,29 @@ export function VaultDetails({ vaultId, sessionId, loanBrokerId, onDeleted }: Va
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatCard icon={<Coins className="h-4 w-4" />} label="Total Assets" value={
             vault?.AssetsTotal
-              ? <AmountDisplay drops={vault.AssetsTotal} className="text-sm font-semibold" />
-              : <span className="text-sm font-semibold">0.00 XRP</span>
+              ? <AmountDisplay drops={vault.AssetsTotal} className="text-sm font-semibold" token={tokenLabel} />
+              : <span className="text-sm font-semibold">0.00 {tokenLabel || "XRP"}</span>
           } />
           <StatCard icon={<Coins className="h-4 w-4" />} label="Available" value={
             vault?.AssetsAvailable
-              ? <AmountDisplay drops={vault.AssetsAvailable} className="text-sm font-semibold" />
-              : <span className="text-sm font-semibold">0.00 XRP</span>
+              ? <AmountDisplay drops={vault.AssetsAvailable} className="text-sm font-semibold" token={tokenLabel} />
+              : <span className="text-sm font-semibold">0.00 {tokenLabel || "XRP"}</span>
           } />
           <StatCard icon={<TrendingUp className="h-4 w-4" />} label="Shares Issued" value={
             <span className="text-sm font-mono font-semibold">
-              {vault?.shares?.OutstandingAmount ? (parseInt(vault.shares.OutstandingAmount) / 1_000_000).toFixed(2) : "0"}
+              {vault?.shares?.OutstandingAmount
+                ? isTokenVault
+                  ? parseFloat(vault.shares.OutstandingAmount).toLocaleString()
+                  : (parseInt(vault.shares.OutstandingAmount) / 1_000_000).toFixed(2)
+                : "0"}
             </span>
           } />
           <StatCard icon={<Vault className="h-4 w-4" />} label="Deposit Cap" value={
             <span className="text-sm font-semibold">
               {vault?.AssetsMaximum && vault.AssetsMaximum !== "0"
-                ? `${(parseInt(vault.AssetsMaximum) / 1_000_000).toLocaleString()} XRP`
+                ? isTokenVault
+                  ? `${parseFloat(vault.AssetsMaximum).toLocaleString()} ${tokenLabel}`
+                  : `${(parseInt(vault.AssetsMaximum) / 1_000_000).toLocaleString()} XRP`
                 : "Unlimited"}
             </span>
           } />
@@ -265,7 +274,7 @@ export function VaultDetails({ vaultId, sessionId, loanBrokerId, onDeleted }: Va
                 {brokerData.CoverAvailable && (
                   <TermRow
                     label="First-loss capital"
-                    value={`${(parseInt(brokerData.CoverAvailable) / 1_000_000).toFixed(2)} XRP`}
+                    value={isTokenVault ? `${parseFloat(brokerData.CoverAvailable).toFixed(2)} ${tokenLabel}` : `${(parseInt(brokerData.CoverAvailable) / 1_000_000).toFixed(2)} XRP`}
                   />
                 )}
                 {brokerData.ManagementFeeRate !== undefined && (
@@ -277,14 +286,16 @@ export function VaultDetails({ vaultId, sessionId, loanBrokerId, onDeleted }: Va
                 {brokerData.DebtTotal !== undefined && (
                   <TermRow
                     label="Total debt"
-                    value={`${(parseInt(brokerData.DebtTotal || "0") / 1_000_000).toFixed(2)} XRP`}
+                    value={isTokenVault ? `${parseFloat(brokerData.DebtTotal || "0").toFixed(2)} ${tokenLabel}` : `${(parseInt(brokerData.DebtTotal || "0") / 1_000_000).toFixed(2)} XRP`}
                   />
                 )}
                 <TermRow
                   label="Max debt"
                   value={
                     brokerData.DebtMaximum && Number(brokerData.DebtMaximum) > 0
-                      ? `${(Number(brokerData.DebtMaximum) / 1_000_000).toLocaleString()} XRP`
+                      ? isTokenVault
+                        ? `${parseFloat(brokerData.DebtMaximum).toLocaleString()} ${tokenLabel}`
+                        : `${(Number(brokerData.DebtMaximum) / 1_000_000).toLocaleString()} XRP`
                       : "Unlimited"
                   }
                 />

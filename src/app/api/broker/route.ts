@@ -3,9 +3,8 @@ import { getErrorMessage } from "@/lib/api-error";
 import { connectDB, SessionModel } from "@/lib/db";
 import { walletFromSeed } from "@/lib/xrpl/wallet";
 import { buildLoanBrokerSet, buildLoanBrokerDelete, buildLoanBrokerCoverDeposit } from "@/lib/xrpl/broker";
-import { validateNumber, validateDrops } from "@/lib/validation";
+import { validateNumber, validateDrops, validateObjectId } from "@/lib/validation";
 import { submitTransaction } from "@/lib/xrpl/vault";
-import { validateObjectId } from "@/lib/validation";
 
 export async function POST(request: NextRequest) {
   try {

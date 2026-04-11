@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
-import { validateObjectId, validateDrops } from "@/lib/validation";
+import { validateObjectId, validateDrops, validateAmount } from "@/lib/validation";
 import { connectDB, SessionModel, LoanModel } from "@/lib/db";
 import { walletFromSeed } from "@/lib/xrpl/wallet";
 import { buildLoanPay, getLoanInfo } from "@/lib/xrpl/loan";
@@ -11,11 +11,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const sessionId = validateObjectId(body.sessionId);
     const loanId = typeof body.loanId === "string" ? body.loanId.trim() : null;
-    const amountDrops = validateDrops(body.amountDrops);
 
-    if (!sessionId || !loanId || !amountDrops) {
+    if (!sessionId || !loanId) {
       return NextResponse.json(
-        { error: "Valid sessionId, loanId, and positive amountDrops are required" },
+        { error: "Valid sessionId and loanId are required" },
         { status: 400 }
       );
     }
@@ -26,6 +25,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Session not found" },
         { status: 404 }
+      );
+    }
+
+    // Validate amount — use validateAmount for tokens, validateDrops for XRP
+    const issuedToken = session.issuedToken;
+    const isToken = !!issuedToken;
+    const amount = isToken
+      ? validateAmount(body.amountDrops)
+      : validateDrops(body.amountDrops);
+
+    if (!amount) {
+      return NextResponse.json(
+        { error: "Valid positive amount is required" },
+        { status: 400 }
       );
     }
 
@@ -40,10 +53,29 @@ export async function POST(request: NextRequest) {
     }
 
     const borrowerWallet = walletFromSeed(borrowerWalletData.seed);
+
+    // Build the proper Amount format for the asset type
+    let payAmount: string | Record<string, string> = amount;
+    if (isToken && issuedToken) {
+      if (issuedToken.type === "IOU") {
+        payAmount = {
+          currency: issuedToken.currency,
+          issuer: issuedToken.issuer,
+          value: amount,
+        };
+      } else {
+        // MPT — convert decimal to integer (AssetScale 2)
+        payAmount = {
+          mpt_issuance_id: issuedToken.mptIssuanceId,
+          value: String(Math.round(parseFloat(amount) * 100)),
+        };
+      }
+    }
+
     const tx = buildLoanPay(
       borrowerWallet.classicAddress,
       loanId,
-      amountDrops
+      payAmount
     );
     const result = await submitTransaction(borrowerWallet, tx);
 
@@ -53,7 +85,6 @@ export async function POST(request: NextRequest) {
       const node = loanInfo.result?.node;
 
       if (node) {
-        // Loan still exists on ledger — update DB from chain state
         const remaining = node.PaymentRemaining ?? 0;
         const outstanding = node.TotalValueOutstanding ?? "0";
         const status = remaining === 0 || Number(outstanding) === 0 ? "repaid" : "active";
@@ -66,7 +97,6 @@ export async function POST(request: NextRequest) {
           }
         );
       } else {
-        // Loan no longer on ledger — fully repaid and removed
         await LoanModel.findOneAndUpdate(
           { loanId },
           {
@@ -77,7 +107,6 @@ export async function POST(request: NextRequest) {
         );
       }
     } catch {
-      // Loan not found on ledger = fully repaid
       await LoanModel.findOneAndUpdate(
         { loanId },
         {

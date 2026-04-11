@@ -16,6 +16,7 @@ interface SessionContextValue {
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshSession: () => Promise<void>;
 }
 
 export const SessionContext = createContext<SessionContextValue>({
@@ -25,6 +26,7 @@ export const SessionContext = createContext<SessionContextValue>({
   error: null,
   login: async () => {},
   logout: () => {},
+  refreshSession: async () => {},
 });
 
 export function useSession() {
@@ -90,5 +92,16 @@ export function useSessionProvider(): SessionContextValue {
     setSession(null);
   }, []);
 
-  return { session, loading, initializing, error, login, logout };
+  const refreshSession = useCallback(async () => {
+    const email = localStorage.getItem("xls66-email");
+    if (email) {
+      const res = await fetch(`/api/session?email=${encodeURIComponent(email)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSession(data.session);
+      }
+    }
+  }, []);
+
+  return { session, loading, initializing, error, login, logout, refreshSession };
 }

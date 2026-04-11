@@ -8,6 +8,7 @@ const vaultSchema = new Schema(
     asset: {
       currency: { type: String, required: true },
       issuer: { type: String },
+      mptIssuanceId: { type: String },
     },
     totalDeposited: { type: String, default: "0" },
     sharesMinted: { type: String, default: "0" },

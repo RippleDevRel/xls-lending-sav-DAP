@@ -93,13 +93,13 @@ export async function signAndSubmitLoanSet(
 export function buildLoanPay(
   borrowerAddress: string,
   loanId: string,
-  amountDrops: string
+  amount: string | Record<string, string>
 ) {
   return {
     TransactionType: "LoanPay",
     Account: borrowerAddress,
     LoanID: loanId,
-    Amount: amountDrops,
+    Amount: amount,
   };
 }
 

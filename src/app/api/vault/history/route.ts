@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     let totalDeposited = 0;
     let totalWithdrawn = 0;
     for (const entry of history) {
-      const amount = parseInt(entry.amountDrops || "0");
+      const amount = parseFloat(entry.amountDrops || "0");
       if (entry.type === "deposit") {
         totalDeposited += amount;
       } else {

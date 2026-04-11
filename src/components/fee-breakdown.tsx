@@ -8,6 +8,7 @@ interface FeeBreakdownProps {
   paymentTotal: number;
   originationFee: string;
   serviceFee: string;
+  token?: string;
 }
 
 export function FeeBreakdown({
@@ -16,41 +17,47 @@ export function FeeBreakdown({
   paymentTotal,
   originationFee,
   serviceFee,
+  token,
 }: FeeBreakdownProps) {
-  const principal = parseInt(principalRequested);
+  const unit = token || "XRP";
+  const parse = token ? parseFloat : parseInt;
+  const principal = parse(principalRequested);
   const totalInterest = Math.floor((principal * interestRate) / 10000);
-  const totalServiceFees = parseInt(serviceFee) * paymentTotal;
+  const totalServiceFees = parse(serviceFee) * paymentTotal;
   const totalToRepay = principal + totalInterest + totalServiceFees;
   const periodicPayment = Math.ceil(totalToRepay / paymentTotal);
+
+  const formatAmount = (drops: number) =>
+    token ? drops.toFixed(2) : (drops / DROPS_PER_XRP).toFixed(2);
 
   return (
     <div className="rounded-lg bg-muted/50 p-4 space-y-2 text-sm">
       <Row label="Principal">
-        <AmountDisplay drops={principalRequested} />
+        <AmountDisplay drops={principalRequested} token={token} />
       </Row>
       <Row label={`Interest (${(interestRate / 100).toFixed(1)}%)`}>
-        <AmountDisplay drops={totalInterest.toString()} />
+        <AmountDisplay drops={totalInterest.toString()} token={token} />
       </Row>
       <Row label={`Service fees (${paymentTotal}×)`}>
-        <AmountDisplay drops={totalServiceFees.toString()} />
+        <AmountDisplay drops={totalServiceFees.toString()} token={token} />
       </Row>
       <Separator />
       <Row label="Total to repay" className="font-medium text-foreground">
-        <AmountDisplay drops={totalToRepay.toString()} />
+        <AmountDisplay drops={totalToRepay.toString()} token={token} />
       </Row>
       <Row label="Est. per payment" className="text-muted-foreground">
         <span className="font-mono">
-          ~{(periodicPayment / DROPS_PER_XRP).toFixed(2)} XRP
+          ~{formatAmount(periodicPayment)} {unit}
         </span>
       </Row>
-      {parseInt(originationFee) > 0 && (
+      {parse(originationFee) > 0 && (
         <>
           <Separator />
           <Row label="Origination fee (deducted from principal)" className="text-muted-foreground text-xs">
-            <AmountDisplay drops={originationFee} />
+            <AmountDisplay drops={originationFee} token={token} />
           </Row>
           <Row label="Borrower receives" className="text-muted-foreground text-xs">
-            <AmountDisplay drops={(principal - parseInt(originationFee)).toString()} />
+            <AmountDisplay drops={(principal - parse(originationFee)).toString()} token={token} />
           </Row>
         </>
       )}

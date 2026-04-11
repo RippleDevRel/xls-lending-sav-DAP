@@ -131,6 +131,7 @@ export default function BorrowerPage() {
               <RepaymentForm
                 sessionId={session._id}
                 loan={loan}
+                token={session.issuedToken ? "TUSD" : undefined}
                 onSuccess={(msg, txHash) => {
                   fetchLoans();
                   setStatus({ type: "success", message: msg, txHash });
@@ -152,7 +153,7 @@ export default function BorrowerPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2 }}
         >
-          <LoanHistory loans={pastLoans} />
+          <LoanHistory loans={pastLoans} token={session.issuedToken ? "TUSD" : undefined} />
         </motion.div>
       )}
     </div>

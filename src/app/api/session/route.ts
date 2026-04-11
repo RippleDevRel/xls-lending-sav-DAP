@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Register: create new account
-    const roles = ["broker", "depositor", "borrower"] as const;
+    const roles = ["broker", "depositor", "borrower", "issuer"] as const;
     const wallets = await Promise.all(
       roles.map(async (role) => {
         const wallet = await generateAndFundWallet();

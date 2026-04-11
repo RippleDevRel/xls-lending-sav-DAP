@@ -6,10 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { DROPS_PER_XRP } from "@/lib/constants";
+import type { IssuedToken } from "@/types/session";
 
 interface DepositFormProps {
   sessionId: string;
   vaultId: string;
+  issuedToken?: IssuedToken;
   onSuccess: (message: string, txHash?: string) => void;
   onError: (message: string) => void;
   onPending: (message: string) => void;
@@ -18,28 +20,38 @@ interface DepositFormProps {
 export function DepositForm({
   sessionId,
   vaultId,
+  issuedToken,
   onSuccess,
   onError,
   onPending,
 }: DepositFormProps) {
-  const [amountXrp, setAmountXrp] = useState("50");
+  const isToken = !!issuedToken;
+  const unit = isToken ? "TUSD" : "XRP";
+  const [amount, setAmount] = useState(isToken ? "5000" : "50");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    onPending("Depositing into vault...");
+    onPending(`Depositing ${amount} ${unit} into vault...`);
 
     try {
-      const amountDrops = String(Math.round(parseFloat(amountXrp) * DROPS_PER_XRP));
+      const body: Record<string, unknown> = { sessionId, vaultId };
+
+      if (isToken) {
+        body.tokenAmount = amount;
+      } else {
+        body.amountDrops = String(Math.round(parseFloat(amount) * DROPS_PER_XRP));
+      }
+
       const res = await fetch("/api/vault/deposit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, vaultId, amountDrops }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      onSuccess(`Deposited ${amountXrp} XRP into vault`, data.result?.hash);
+      onSuccess(`Deposited ${amount} ${unit} into vault`, data.result?.hash);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Deposit failed");
     } finally {
@@ -50,14 +62,14 @@ export function DepositForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="deposit-amount">Amount (XRP)</Label>
+        <Label htmlFor="deposit-amount">Amount ({unit})</Label>
         <Input
           id="deposit-amount"
           type="number"
-          min="1"
-          step="1"
-          value={amountXrp}
-          onChange={(e) => setAmountXrp(e.target.value)}
+          min={isToken ? "0.01" : "1"}
+          step={isToken ? "0.01" : "1"}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
           required
         />
       </div>
@@ -68,7 +80,7 @@ export function DepositForm({
             Depositing...
           </>
         ) : (
-          "Deposit"
+          `Deposit ${unit}`
         )}
       </Button>
     </form>

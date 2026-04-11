@@ -5,15 +5,20 @@ import { useSession } from "@/hooks/use-session";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { WalletBadge } from "@/components/wallet-badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   LogOut,
   Briefcase,
   PiggyBank,
   HandCoins,
+  Landmark,
   ChevronDown,
   Wallet,
   RefreshCw,
+  ArrowRightLeft,
+  Loader2,
+  Send,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -35,7 +40,14 @@ const roleConfig = {
     label: "Borrower",
     color: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   },
+  issuer: {
+    icon: Landmark,
+    label: "Currency Issuer",
+    color: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+  },
 };
+
+const roles = ["broker", "depositor", "borrower", "issuer"] as const;
 
 export function SessionHeader() {
   const { session, logout } = useSession();
@@ -44,8 +56,22 @@ export function SessionHeader() {
   const [balances, setBalances] = useState<
     Record<string, string> | null
   >(null);
+  const [tokenBalances, setTokenBalances] = useState<
+    Record<string, string> | null
+  >(null);
   const [loadingBalances, setLoadingBalances] = useState(false);
   const [toppingUp, setToppingUp] = useState(false);
+
+  // Transfer state
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [transferFrom, setTransferFrom] = useState("broker");
+  const [transferTo, setTransferTo] = useState("depositor");
+  const [transferAmount, setTransferAmount] = useState("10");
+  const [transferAsset, setTransferAsset] = useState<"XRP" | "TUSD">("XRP");
+  const [transferring, setTransferring] = useState(false);
+  const [transferResult, setTransferResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const hasToken = !!session?.issuedToken;
 
   const fetchBalances = useCallback(async () => {
     if (!session?._id) return;
@@ -57,10 +83,13 @@ export function SessionHeader() {
       if (res.ok) {
         const data = await res.json();
         const map: Record<string, string> = {};
+        const tokenMap: Record<string, string> = {};
         for (const w of data.wallets) {
           map[w.role] = w.balance;
+          if (w.tokenBalance) tokenMap[w.role] = w.tokenBalance;
         }
         setBalances(map);
+        if (Object.keys(tokenMap).length > 0) setTokenBalances(tokenMap);
       }
     } finally {
       setLoadingBalances(false);
@@ -85,6 +114,33 @@ export function SessionHeader() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
+  }
+
+  async function handleTransfer() {
+    if (!session || transferFrom === transferTo) return;
+    setTransferring(true);
+    setTransferResult(null);
+    try {
+      const res = await fetch("/api/session/transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: session._id,
+          from: transferFrom,
+          to: transferTo,
+          amount: transferAmount,
+          asset: transferAsset,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setTransferResult({ ok: true, msg: `Sent ${transferAmount} ${transferAsset}` });
+      fetchBalances();
+    } catch (err) {
+      setTransferResult({ ok: false, msg: err instanceof Error ? err.message : "Transfer failed" });
+    } finally {
+      setTransferring(false);
+    }
   }
 
   return (
@@ -118,7 +174,7 @@ export function SessionHeader() {
                 className="fixed inset-0 z-30"
                 onClick={() => setOpen(false)}
               />
-              <div className="absolute right-0 top-full z-40 mt-2 w-80 rounded-xl border bg-card p-2 shadow-lg">
+              <div className="absolute right-0 top-full z-40 mt-2 w-80 rounded-xl border bg-card p-2 shadow-lg max-h-[80vh] overflow-y-auto">
                 <div className="flex items-center justify-between px-2 py-1.5 mb-1">
                   <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                     Session wallets
@@ -138,6 +194,7 @@ export function SessionHeader() {
                 {session.wallets.map((w) => {
                   const config =
                     roleConfig[w.role as keyof typeof roleConfig];
+                  if (!config) return null;
                   const Icon = config.icon;
                   const balance = balances?.[w.role];
 
@@ -156,20 +213,27 @@ export function SessionHeader() {
                           <p className="text-xs font-semibold">
                             {config.label}
                           </p>
-                          {loadingBalances && !balance ? (
-                            <Skeleton className="h-4 w-16" />
-                          ) : balance ? (
-                            <p className="text-xs font-mono font-semibold">
-                              {formatXrp(balance)}{" "}
-                              <span className="text-muted-foreground font-normal">
-                                XRP
-                              </span>
-                            </p>
-                          ) : (
-                            <p className="text-[11px] text-muted-foreground">
-                              —
-                            </p>
-                          )}
+                          <div className="text-right">
+                            {loadingBalances && !balance ? (
+                              <Skeleton className="h-4 w-16" />
+                            ) : balance ? (
+                              <p className="text-xs font-mono font-semibold">
+                                {formatXrp(balance)}{" "}
+                                <span className="text-muted-foreground font-normal">
+                                  XRP
+                                </span>
+                              </p>
+                            ) : (
+                              <p className="text-[11px] text-muted-foreground">
+                                —
+                              </p>
+                            )}
+                            {tokenBalances?.[w.role] && (
+                              <p className="text-[11px] font-mono text-muted-foreground">
+                                {tokenBalances[w.role]} TUSD
+                              </p>
+                            )}
+                          </div>
                         </div>
                         <div className="mt-0.5">
                           <WalletBadge address={w.address} />
@@ -180,6 +244,109 @@ export function SessionHeader() {
                 })}
 
                 <div className="border-t mt-1 pt-1 space-y-1">
+                  {/* Transfer toggle */}
+                  <button
+                    onClick={() => {
+                      setShowTransfer(!showTransfer);
+                      setTransferResult(null);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 rounded-lg px-2 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  >
+                    <ArrowRightLeft className="h-3 w-3" />
+                    Transfer between wallets
+                  </button>
+
+                  {/* Transfer form */}
+                  {showTransfer && (
+                    <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+                      {/* Asset selector */}
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => setTransferAsset("XRP")}
+                          className={`flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                            transferAsset === "XRP"
+                              ? "bg-primary/10 text-primary border border-primary/30"
+                              : "text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          XRP
+                        </button>
+                        {hasToken && (
+                          <button
+                            onClick={() => setTransferAsset("TUSD")}
+                            className={`flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                              transferAsset === "TUSD"
+                                ? "bg-primary/10 text-primary border border-primary/30"
+                                : "text-muted-foreground hover:bg-muted"
+                            }`}
+                          >
+                            TUSD
+                          </button>
+                        )}
+                      </div>
+
+                      {/* From / To */}
+                      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                        <select
+                          value={transferFrom}
+                          onChange={(e) => setTransferFrom(e.target.value)}
+                          className="rounded-md border bg-background px-2 py-1.5 text-[11px] font-medium"
+                        >
+                          {roles.map((r) => (
+                            <option key={r} value={r}>
+                              {roleConfig[r].label}
+                            </option>
+                          ))}
+                        </select>
+                        <Send className="h-3 w-3 text-muted-foreground" />
+                        <select
+                          value={transferTo}
+                          onChange={(e) => setTransferTo(e.target.value)}
+                          className="rounded-md border bg-background px-2 py-1.5 text-[11px] font-medium"
+                        >
+                          {roles.map((r) => (
+                            <option key={r} value={r}>
+                              {roleConfig[r].label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Amount */}
+                      <div className="flex gap-2">
+                        <Input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={transferAmount}
+                          onChange={(e) => setTransferAmount(e.target.value)}
+                          className="h-8 text-xs"
+                          placeholder={`Amount (${transferAsset})`}
+                        />
+                        <Button
+                          size="sm"
+                          className="h-8 px-3 text-xs shrink-0"
+                          disabled={transferring || transferFrom === transferTo || !transferAmount}
+                          onClick={handleTransfer}
+                        >
+                          {transferring ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            "Send"
+                          )}
+                        </Button>
+                      </div>
+
+                      {/* Result */}
+                      {transferResult && (
+                        <p className={`text-[11px] ${transferResult.ok ? "text-emerald-600" : "text-destructive"}`}>
+                          {transferResult.msg}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Top up */}
                   <button
                     onClick={async () => {
                       setToppingUp(true);

@@ -39,9 +39,7 @@ export function CreateVault({
 
   // Asset type
   const [assetType, setAssetType] = useState<"XRP" | "IOU" | "MPT">("XRP");
-  const [iouCurrency, setIouCurrency] = useState("");
-  const [iouIssuer, setIouIssuer] = useState("");
-  const [mptIssuanceId, setMptIssuanceId] = useState("");
+  const unit = assetType === "XRP" ? "XRP" : "TUSD";
 
   // Vault metadata
   const [vaultName, setVaultName] = useState("");
@@ -70,34 +68,24 @@ export function CreateVault({
 
   async function handleCreate() {
     setLoading(true);
-    onPending("Creating vault and broker on XRPL Devnet...");
+    const pendingMsg = assetType !== "XRP"
+      ? `Setting up TUSD (${assetType})... This may take a moment.`
+      : "Creating vault and broker on XRPL Devnet...";
+    onPending(pendingMsg);
 
     try {
       const vaultOptions: Record<string, unknown> = {};
 
-      // Asset
-      if (assetType === "IOU" && iouCurrency.trim() && iouIssuer.trim()) {
-        vaultOptions.asset = {
-          type: "IOU",
-          currency: iouCurrency.trim().toUpperCase(),
-          issuer: iouIssuer.trim(),
-        };
-      } else if (assetType === "MPT" && mptIssuanceId.trim()) {
-        vaultOptions.asset = {
-          type: "MPT",
-          mptIssuanceId: mptIssuanceId.trim(),
-        };
-      } else {
-        vaultOptions.asset = { type: "XRP" };
-      }
+      // Asset — IOU/MPT setup is handled automatically on the server
+      vaultOptions.asset = { type: assetType };
 
       if (vaultName.trim()) vaultOptions.name = vaultName.trim();
       if (website.trim()) vaultOptions.website = website.trim();
       if (nonTransferable) vaultOptions.nonTransferableShares = true;
       if (hasMaxCap && maxCapXrp) {
-        vaultOptions.assetsMaximum = String(
-          Math.round(parseFloat(maxCapXrp) * DROPS_PER_XRP)
-        );
+        vaultOptions.assetsMaximum = assetType === "XRP"
+          ? String(Math.round(parseFloat(maxCapXrp) * DROPS_PER_XRP))
+          : maxCapXrp;
       }
       if (shareTicker.trim() || shareName.trim() || shareDesc.trim() || shareIcon.trim() || shareIssuerName.trim()) {
         vaultOptions.shareMetadata = {
@@ -122,12 +110,18 @@ export function CreateVault({
       // Build broker options
       const brokerOptions: Record<string, number> = {};
       if (managementFee) brokerOptions.managementFeeRate = Math.round(parseFloat(managementFee) * 100);
-      if (debtMaximum) brokerOptions.debtMaximum = Math.round(parseFloat(debtMaximum) * DROPS_PER_XRP);
+      if (debtMaximum) {
+        brokerOptions.debtMaximum = assetType === "XRP"
+          ? Math.round(parseFloat(debtMaximum) * DROPS_PER_XRP)
+          : parseFloat(debtMaximum);
+      }
       if (coverRateMin) brokerOptions.coverRateMinimum = Math.round(parseFloat(coverRateMin) * 100);
       if (coverRateLiq) brokerOptions.coverRateLiquidation = Math.round(parseFloat(coverRateLiq) * 100);
 
       const coverAmountDrops = firstLossCapital
-        ? String(Math.round(parseFloat(firstLossCapital) * DROPS_PER_XRP))
+        ? assetType === "XRP"
+          ? String(Math.round(parseFloat(firstLossCapital) * DROPS_PER_XRP))
+          : firstLossCapital
         : undefined;
 
       const brokerRes = await fetch("/api/broker", {
@@ -175,7 +169,7 @@ export function CreateVault({
         <CardHeader className="space-y-2">
           <CardTitle className="text-xl">Create a Vault</CardTitle>
           <CardDescription>
-            Configure and deploy a public XRP vault on the ledger. A loan broker
+            Configure and deploy a public vault on the ledger. A loan broker
             will be registered automatically.
           </CardDescription>
         </CardHeader>
@@ -187,103 +181,30 @@ export function CreateVault({
               {(
                 [
                   { key: "XRP", label: "XRP" },
-                  { key: "RLUSD", label: "RLUSD", disabled: true },
-                  { key: "IOU", label: "Custom IOU" },
-                  { key: "MPT", label: "MPT" },
+                  { key: "IOU", label: "TUSD (IOU)" },
+                  { key: "MPT", label: "TUSD (MPT)" },
                 ] as const
               ).map((opt) => (
                 <button
                   key={opt.key}
                   type="button"
-                  disabled={"disabled" in opt && opt.disabled}
-                  onClick={() => {
-                    if ("disabled" in opt && opt.disabled) return;
-                    if (opt.key === "RLUSD") {
-                      setAssetType("IOU");
-                      setIouCurrency("USD");
-                      setIouIssuer("rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV");
-                    } else if (opt.key === "IOU") {
-                      setAssetType("IOU");
-                      setIouCurrency("");
-                      setIouIssuer("");
-                    } else if (opt.key === "MPT") {
-                      setAssetType("MPT");
-                    } else {
-                      setAssetType("XRP");
-                    }
-                  }}
+                  onClick={() => setAssetType(opt.key)}
                   className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                    "disabled" in opt && opt.disabled
-                      ? "opacity-40 cursor-not-allowed text-muted-foreground"
-                      : (opt.key === "XRP" && assetType === "XRP") ||
-                          (opt.key === "RLUSD" && assetType === "IOU" && iouIssuer === "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV") ||
-                          (opt.key === "IOU" && assetType === "IOU" && iouIssuer !== "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV") ||
-                          (opt.key === "MPT" && assetType === "MPT")
-                        ? "border-primary bg-primary/5 text-primary"
-                        : "text-muted-foreground hover:bg-muted/50"
+                    assetType === opt.key
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "text-muted-foreground hover:bg-muted/50"
                   }`}
                 >
                   {opt.label}
-                  {"disabled" in opt && opt.disabled && (
-                    <span className="ml-1 text-[10px] text-muted-foreground font-normal">
-                      (Testnet only)
-                    </span>
-                  )}
                 </button>
               ))}
             </div>
 
-            {assetType === "IOU" && (() => {
-              const isRlusd = iouIssuer === "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV";
-              return (
-                <div className="space-y-3">
-                  {isRlusd && (
-                    <div className="rounded-lg bg-primary/5 border border-primary/20 px-3 py-2 text-xs text-primary">
-                      RLUSD — Ripple&apos;s USD stablecoin on XRPL Devnet
-                    </div>
-                  )}
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="iou-currency">Currency code</Label>
-                      <Input
-                        id="iou-currency"
-                        placeholder="e.g. USD"
-                        value={iouCurrency}
-                        onChange={(e) => setIouCurrency(e.target.value)}
-                        maxLength={3}
-                        readOnly={isRlusd}
-                        className={isRlusd ? "bg-muted" : ""}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="iou-issuer">Issuer address</Label>
-                      <Input
-                        id="iou-issuer"
-                        placeholder="rXXXX..."
-                        value={iouIssuer}
-                        onChange={(e) => setIouIssuer(e.target.value)}
-                        className={`font-mono text-xs ${isRlusd ? "bg-muted" : ""}`}
-                        readOnly={isRlusd}
-                        required
-                      />
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {assetType === "MPT" && (
-              <div className="space-y-2">
-                <Label htmlFor="mpt-id">MPT Issuance ID</Label>
-                <Input
-                  id="mpt-id"
-                  placeholder="0000012FFD9EE5DA93AC614B..."
-                  value={mptIssuanceId}
-                  onChange={(e) => setMptIssuanceId(e.target.value)}
-                  className="font-mono text-xs"
-                  required
-                />
+            {assetType !== "XRP" && (
+              <div className="rounded-lg bg-primary/5 border border-primary/20 px-3 py-2 text-xs text-primary">
+                {assetType === "IOU"
+                  ? "TUSD — Test USD token will be automatically issued via trustlines. 10,000 TUSD distributed to the depositor wallet."
+                  : "TUSD — Test USD token will be automatically issued as an MPT (Multi-Purpose Token). 10,000 TUSD distributed to the depositor wallet."}
               </div>
             )}
           </div>
@@ -339,7 +260,7 @@ export function CreateVault({
               </div>
               {hasMaxCap && (
                 <div className="space-y-2 pl-6">
-                  <Label htmlFor="max-cap">Max assets (XRP)</Label>
+                  <Label htmlFor="max-cap">Max assets ({unit})</Label>
                   <Input
                     id="max-cap"
                     type="number"
@@ -481,7 +402,7 @@ export function CreateVault({
               </div>
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
-                  <Label htmlFor="debt-max">Max debt (XRP)</Label>
+                  <Label htmlFor="debt-max">Max debt ({unit})</Label>
                   <InfoTip text="Maximum total debt the broker can issue across all loans. Leave empty for unlimited." />
                 </div>
                 <Input
@@ -532,7 +453,7 @@ export function CreateVault({
 
             <div className="space-y-2">
               <div className="flex items-center gap-1.5">
-                <Label htmlFor="first-loss">First-loss capital (XRP)</Label>
+                <Label htmlFor="first-loss">First-loss capital ({unit})</Label>
                 <InfoTip text="Assets deposited by the broker as a buffer against loan defaults. Protects depositors by absorbing initial losses. Deposited from the broker wallet after creation." />
               </div>
               <Input
@@ -557,15 +478,7 @@ export function CreateVault({
             <div className="flex justify-between">
               <span className="text-muted-foreground">Asset</span>
               <span className="font-medium font-mono">
-                {assetType === "XRP"
-                  ? "XRP"
-                  : assetType === "IOU"
-                    ? iouIssuer === "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV"
-                      ? "RLUSD"
-                      : iouCurrency.toUpperCase() || "—"
-                    : mptIssuanceId
-                      ? `MPT:${mptIssuanceId.slice(0, 8)}...`
-                      : "—"}
+                {assetType === "XRP" ? "XRP" : `TUSD (${assetType})`}
               </span>
             </div>
             <div className="flex justify-between">
@@ -575,7 +488,7 @@ export function CreateVault({
             <div className="flex justify-between">
               <span className="text-muted-foreground">Deposit cap</span>
               <span className="font-medium">
-                {hasMaxCap ? `${maxCapXrp} XRP` : "Unlimited"}
+                {hasMaxCap ? `${maxCapXrp} ${unit}` : "Unlimited"}
               </span>
             </div>
             <div className="flex justify-between">
@@ -593,7 +506,7 @@ export function CreateVault({
             {firstLossCapital && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">First-loss capital</span>
-                <span className="font-medium">{firstLossCapital} XRP</span>
+                <span className="font-medium">{firstLossCapital} {unit}</span>
               </div>
             )}
           </div>

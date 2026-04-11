@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
-const MONGODB_URI = process.env.MONGODB_URI!;
+if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI environment variable is required");
+const MONGODB_URI: string = process.env.MONGODB_URI;
 
 const cached = global as typeof globalThis & {
   mongoose: {

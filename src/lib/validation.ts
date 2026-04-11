@@ -6,6 +6,14 @@ export function validateDrops(value: unknown): string | null {
   return value;
 }
 
+// Validate a string amount (positive number, integer or decimal — for IOU/MPT)
+export function validateAmount(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return value;
+}
+
 // Validate a numeric parameter is within range
 export function validateNumber(
   value: unknown,

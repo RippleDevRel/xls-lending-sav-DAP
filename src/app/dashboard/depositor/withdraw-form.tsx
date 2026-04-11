@@ -6,10 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { DROPS_PER_XRP } from "@/lib/constants";
+import type { IssuedToken } from "@/types/session";
 
 interface WithdrawFormProps {
   sessionId: string;
   vaultId: string;
+  issuedToken?: IssuedToken;
   vaultAssetsTotal?: string;
   vaultAssetsAvailable?: string;
   onSuccess: (message: string, txHash?: string) => void;
@@ -20,29 +22,39 @@ interface WithdrawFormProps {
 export function WithdrawForm({
   sessionId,
   vaultId,
+  issuedToken,
   vaultAssetsTotal,
   vaultAssetsAvailable,
   onSuccess,
   onError,
   onPending,
 }: WithdrawFormProps) {
-  const [amountXrp, setAmountXrp] = useState("10");
+  const isToken = !!issuedToken;
+  const unit = isToken ? "TUSD" : "XRP";
+  const [amount, setAmount] = useState(isToken ? "100" : "10");
   const [loading, setLoading] = useState(false);
 
-  async function handleWithdraw(amountDrops: string) {
+  async function handleWithdraw(amountValue: string) {
     setLoading(true);
-    const xrp = (parseInt(amountDrops) / DROPS_PER_XRP).toFixed(2);
-    onPending(`Withdrawing ${xrp} XRP from vault...`);
+    onPending(`Withdrawing ${amountValue} ${unit} from vault...`);
 
     try {
+      const body: Record<string, unknown> = { sessionId, vaultId };
+
+      if (isToken) {
+        body.tokenAmount = amountValue;
+      } else {
+        body.amountDrops = amountValue;
+      }
+
       const res = await fetch("/api/vault/withdraw", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, vaultId, amountDrops }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      onSuccess(`Redeemed ${xrp} XRP from vault`, data.result?.hash);
+      onSuccess(`Redeemed ${amountValue} ${unit} from vault`, data.result?.hash);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Withdrawal failed");
     } finally {
@@ -52,12 +64,16 @@ export function WithdrawForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const amountDrops = String(Math.round(parseFloat(amountXrp) * DROPS_PER_XRP));
-    await handleWithdraw(amountDrops);
+    if (isToken) {
+      await handleWithdraw(amount);
+    } else {
+      const amountDrops = String(Math.round(parseFloat(amount) * DROPS_PER_XRP));
+      await handleWithdraw(amountDrops);
+    }
   }
 
   async function handleWithdrawAll() {
-    // Fetch fresh vault state — use AssetsAvailable (not Total)
+    // Fetch fresh vault state
     let availableDrops = vaultAssetsAvailable || vaultAssetsTotal || "0";
     try {
       const res = await fetch(`/api/vault/${vaultId}`);
@@ -73,13 +89,21 @@ export function WithdrawForm({
       return;
     }
 
-    await handleWithdraw(availableDrops);
+    if (isToken) {
+      // For tokens, send the raw value — the API will handle formatting
+      await handleWithdraw(availableDrops);
+    } else {
+      await handleWithdraw(availableDrops);
+    }
   }
 
   // Use AssetsAvailable (not Total) — some assets may be locked in loans
   const withdrawable = vaultAssetsAvailable || vaultAssetsTotal;
-  const availableXrp = withdrawable
-    ? (parseInt(withdrawable) / DROPS_PER_XRP).toFixed(2)
+  const hasAssets = withdrawable && Number(withdrawable) > 0;
+  const availableDisplay = hasAssets
+    ? isToken
+      ? withdrawable
+      : (parseInt(withdrawable) / DROPS_PER_XRP).toFixed(2)
     : null;
 
   return (
@@ -88,39 +112,41 @@ export function WithdrawForm({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label htmlFor="withdraw-amount">Shares to redeem</Label>
-            {availableXrp && (
+            {availableDisplay && (
               <button
                 type="button"
-                onClick={() => setAmountXrp(availableXrp)}
+                onClick={() => setAmount(availableDisplay)}
                 className="text-xs text-primary hover:underline"
               >
-                Max available: {availableXrp} XRP
+                Max available: {availableDisplay} {unit}
               </button>
             )}
           </div>
           <Input
             id="withdraw-amount"
             type="number"
-            min="0.1"
-            step="0.1"
-            value={amountXrp}
-            onChange={(e) => setAmountXrp(e.target.value)}
+            min="0.01"
+            step={isToken ? "0.01" : "0.1"}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
             required
           />
         </div>
-        <Button type="submit" variant="outline" className="w-full" disabled={loading}>
+        <Button type="submit" variant="outline" className="w-full" disabled={loading || !hasAssets}>
           {loading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Withdrawing...
             </>
+          ) : !hasAssets ? (
+            "No assets to withdraw"
           ) : (
-            "Withdraw"
+            `Withdraw ${unit}`
           )}
         </Button>
       </form>
 
-      {availableXrp && Number(availableXrp) > 0 && (
+      {availableDisplay && Number(availableDisplay) > 0 && (
         <Button
           variant="secondary"
           className="w-full"
@@ -133,7 +159,7 @@ export function WithdrawForm({
               Redeeming...
             </>
           ) : (
-            `Redeem max available (${availableXrp} XRP)`
+            `Redeem max available (${availableDisplay} ${unit})`
           )}
         </Button>
       )}

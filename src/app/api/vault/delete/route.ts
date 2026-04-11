@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       if (assetsTotal > 0) {
         return NextResponse.json(
           {
-            error: `Cannot delete vault: ${(assetsTotal / 1_000_000).toFixed(2)} XRP still deposited. Withdraw all funds from the Depositor tab first.`,
+            error: `Cannot delete vault: assets still deposited (${assetsTotal}). Withdraw all funds from the Depositor tab first.`,
           },
           { status: 400 }
         );

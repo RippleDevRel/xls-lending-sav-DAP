@@ -21,6 +21,7 @@ import type { LoanState } from "@/types/loan";
 interface RepaymentFormProps {
   sessionId: string;
   loan: LoanState;
+  token?: string;
   onSuccess: (message: string, txHash?: string) => void;
   onError: (message: string) => void;
   onPending: (message: string) => void;
@@ -47,10 +48,13 @@ interface OnChainLoan {
 export function RepaymentForm({
   sessionId,
   loan,
+  token,
   onSuccess,
   onError,
   onPending,
 }: RepaymentFormProps) {
+  const unit = token || "XRP";
+  const isToken = !!token;
   const [mode, setMode] = useState<PaymentMode>("installment");
   const [customAmount, setCustomAmount] = useState("10");
   const [loading, setLoading] = useState(false);
@@ -87,27 +91,44 @@ export function RepaymentForm({
     paymentsRemaining === 0 ||
     (Number(totalOutstanding) === 0 && paid > 0);
 
+  // For XRP (drops), round up to nearest integer. For tokens, round to 6 decimals max (XRPL IOU limit).
+  const ceil = isToken ? (n: number) => n : Math.ceil;
+  const roundAmt = isToken
+    ? (n: number) => parseFloat(n.toFixed(6))
+    : (n: number) => Math.ceil(n);
+
+  // Add a small buffer to avoid tecINSUFFICIENT_PAYMENT from interest accruing
+  // between fetch and submission. The ledger caps overpayments automatically.
+  function addBuffer(n: number): number {
+    return isToken ? n * 1.02 : n + 1000; // +2% for tokens, +1000 drops for XRP
+  }
+
   function getPaymentAmount(): string {
     if (mode === "full") {
-      const outstanding = Math.ceil(Number(totalOutstanding || "0"));
-      const svcFee = Math.ceil(Number(serviceFee));
+      const outstanding = Number(totalOutstanding || "0");
+      const svcFee = Number(serviceFee);
       const totalServiceFees = svcFee * paymentsRemaining;
-      return String(outstanding + totalServiceFees);
+      return String(roundAmt(addBuffer(outstanding + totalServiceFees)));
     }
     if (mode === "installment") {
-      const periodicPayment = Math.ceil(
+      const periodicPayment = ceil(
         Number(onChain?.PeriodicPayment || "0")
       );
-      const svcFee = Math.ceil(Number(serviceFee));
+      const svcFee = Number(serviceFee);
 
       if (periodicPayment > 0) {
-        return String(periodicPayment + svcFee);
+        return String(roundAmt(addBuffer(periodicPayment + svcFee)));
       }
-      const outstanding = Math.ceil(Number(totalOutstanding || "0"));
+      const outstanding = Number(totalOutstanding || "0");
       const remaining = paymentsRemaining || 1;
-      return String(Math.ceil(outstanding / remaining) + svcFee);
+      return String(roundAmt(addBuffer(outstanding / remaining + svcFee)));
     }
+    if (isToken) return String(parseFloat(customAmount || "0"));
     return String(Math.round(parseFloat(customAmount || "0") * DROPS_PER_XRP));
+  }
+
+  function formatVal(drops: string): string {
+    return isToken ? parseFloat(drops).toFixed(2) : (parseInt(drops) / DROPS_PER_XRP).toFixed(2);
   }
 
   function formatDate(rippleTimestamp: number): string {
@@ -128,8 +149,8 @@ export function RepaymentForm({
     // Refresh on-chain state first to get accurate numbers
     await fetchLoanInfo();
     const amountDrops = getPaymentAmount();
-    const amountXrp = (parseInt(amountDrops) / DROPS_PER_XRP).toFixed(2);
-    onPending(`Making payment of ${amountXrp} XRP...`);
+    const amountDisplay = formatVal(amountDrops);
+    onPending(`Making payment of ${amountDisplay} ${unit}...`);
 
     try {
       // Re-fetch fresh on-chain state before paying in full
@@ -141,17 +162,17 @@ export function RepaymentForm({
             const freshData = await freshRes.json();
             const node = freshData.onLedger?.node;
             if (node) {
-              const freshOutstanding = Math.ceil(Number(node.TotalValueOutstanding || "0"));
+              const freshOutstanding = Number(node.TotalValueOutstanding || "0");
               const freshRemaining = node.PaymentRemaining ?? 0;
-              const svcFee = Math.ceil(Number(serviceFee));
-              finalAmountDrops = String(freshOutstanding + svcFee * freshRemaining);
+              const svcFee = Number(serviceFee);
+              finalAmountDrops = String(roundAmt(addBuffer(freshOutstanding + svcFee * freshRemaining)));
             }
           }
         } catch { /* use original calculation */ }
       }
 
-      const finalXrp = (parseInt(finalAmountDrops) / DROPS_PER_XRP).toFixed(2);
-      onPending(`Making payment of ${finalXrp} XRP...`);
+      const finalDisplay = formatVal(finalAmountDrops);
+      onPending(`Making payment of ${finalDisplay} ${unit}...`);
 
       const res = await fetch("/api/loan/repay", {
         method: "POST",
@@ -166,7 +187,7 @@ export function RepaymentForm({
       if (!res.ok) throw new Error(data.error);
       // Refresh on-chain state after payment
       await fetchLoanInfo();
-      onSuccess(`Payment of ${finalXrp} XRP submitted`, data.result?.hash);
+      onSuccess(`Payment of ${finalDisplay} ${unit} submitted`, data.result?.hash);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Payment failed");
     } finally {
@@ -198,7 +219,7 @@ export function RepaymentForm({
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-muted-foreground text-xs">Principal</p>
-              <AmountDisplay drops={principalRequested} className="font-medium" />
+              <AmountDisplay drops={principalRequested} className="font-medium" token={token} />
             </div>
             <div>
               <p className="text-muted-foreground text-xs">Payments made</p>
@@ -274,11 +295,11 @@ export function RepaymentForm({
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-muted-foreground text-xs">Principal</p>
-            <AmountDisplay drops={principalRequested} className="font-medium" />
+            <AmountDisplay drops={principalRequested} className="font-medium" token={token} />
           </div>
           <div>
             <p className="text-muted-foreground text-xs">Outstanding</p>
-            <AmountDisplay drops={totalOutstanding} className="font-medium" />
+            <AmountDisplay drops={totalOutstanding} className="font-medium" token={token} />
           </div>
           <div>
             <p className="text-muted-foreground text-xs">Interest rate</p>
@@ -309,7 +330,7 @@ export function RepaymentForm({
           <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm">
             <Clock className="h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">Periodic payment:</span>
-            <AmountDisplay drops={onChain.PeriodicPayment} className="font-medium" />
+            <AmountDisplay drops={onChain.PeriodicPayment} className="font-medium" token={token} />
           </div>
         )}
 
@@ -360,32 +381,32 @@ export function RepaymentForm({
           {mode === "installment" && (
             <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-sm">
               <span className="text-muted-foreground">Amount: </span>
-              <AmountDisplay drops={getPaymentAmount()} className="font-semibold" />
+              <AmountDisplay drops={getPaymentAmount()} className="font-semibold" token={token} />
             </div>
           )}
 
           {mode === "full" && (() => {
-            const outstanding = Math.ceil(
+            const outstanding = ceil(
               Number(onChain?.TotalValueOutstanding || loan.principalOutstanding || "0")
             );
             const remaining = onChain?.PaymentRemaining ?? loan.paymentsRemaining;
-            const svcFee = Math.ceil(Number(serviceFee));
+            const svcFee = Number(serviceFee);
             const totalSvcFees = svcFee * remaining;
             return (
               <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-sm space-y-1.5">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Outstanding (principal + interest)</span>
-                  <AmountDisplay drops={String(outstanding)} />
+                  <AmountDisplay drops={String(outstanding)} token={token} />
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">
-                    Service fees ({remaining} × {(svcFee / DROPS_PER_XRP).toFixed(1)} XRP)
+                    Service fees ({remaining} × {formatVal(String(svcFee))} {unit})
                   </span>
-                  <AmountDisplay drops={String(totalSvcFees)} />
+                  <AmountDisplay drops={String(totalSvcFees)} token={token} />
                 </div>
                 <div className="flex justify-between border-t pt-1.5 font-semibold">
                   <span>Total</span>
-                  <AmountDisplay drops={getPaymentAmount()} />
+                  <AmountDisplay drops={getPaymentAmount()} token={token} />
                 </div>
               </div>
             );
@@ -393,7 +414,7 @@ export function RepaymentForm({
 
           {mode === "custom" && (
             <div className="space-y-2">
-              <Label htmlFor="custom-amount">Amount (XRP)</Label>
+              <Label htmlFor="custom-amount">Amount ({unit})</Label>
               <Input
                 id="custom-amount"
                 type="number"
@@ -413,7 +434,7 @@ export function RepaymentForm({
                 Processing...
               </>
             ) : (
-              `Pay ${(parseInt(getPaymentAmount()) / DROPS_PER_XRP).toFixed(2)} XRP`
+              `Pay ${formatVal(getPaymentAmount())} ${unit}`
             )}
           </Button>
         </form>

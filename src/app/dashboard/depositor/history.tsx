@@ -38,13 +38,17 @@ interface DepositHistoryProps {
   sessionId: string;
   vaultId: string;
   vaultAssetsTotal?: string;
+  token?: string;
 }
 
 export function DepositHistory({
   sessionId,
   vaultId,
   vaultAssetsTotal,
+  token,
 }: DepositHistoryProps) {
+  const unit = token || "XRP";
+  const isToken = !!token;
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
 
@@ -64,9 +68,10 @@ export function DepositHistory({
   }, [fetchHistory]);
 
   // Calculate PNL: total withdrawn + current position - total deposited
-  const totalDeposited = parseInt(summary?.totalDeposited || "0");
-  const totalWithdrawn = parseInt(summary?.totalWithdrawn || "0");
-  const currentPosition = parseInt(vaultAssetsTotal || "0");
+  const parse = token ? parseFloat : parseInt;
+  const totalDeposited = parse(summary?.totalDeposited || "0");
+  const totalWithdrawn = parse(summary?.totalWithdrawn || "0");
+  const currentPosition = parse(vaultAssetsTotal || "0");
   const pnl = totalWithdrawn + currentPosition - totalDeposited;
   const pnlPercent =
     totalDeposited > 0 ? ((pnl / totalDeposited) * 100).toFixed(2) : "0.00";
@@ -95,6 +100,7 @@ export function DepositHistory({
               <AmountDisplay
                 drops={summary.totalDeposited}
                 className="text-sm font-semibold"
+                token={token}
               />
             </div>
             <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
@@ -104,6 +110,7 @@ export function DepositHistory({
               <AmountDisplay
                 drops={summary.totalWithdrawn}
                 className="text-sm font-semibold"
+                token={token}
               />
             </div>
             <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
@@ -113,6 +120,7 @@ export function DepositHistory({
               <AmountDisplay
                 drops={vaultAssetsTotal || "0"}
                 className="text-sm font-semibold"
+                token={token}
               />
             </div>
             <div
@@ -137,7 +145,7 @@ export function DepositHistory({
                   }`}
                 >
                   {pnlPositive ? "+" : ""}
-                  {(pnl / DROPS_PER_XRP).toFixed(2)} XRP
+                  {isToken ? pnl.toFixed(2) : (pnl / DROPS_PER_XRP).toFixed(2)} {unit}
                 </span>
                 <span
                   className={`text-[11px] ${
@@ -201,10 +209,10 @@ export function DepositHistory({
                       }`}
                     >
                       {entry.type === "deposit" ? "+" : "-"}
-                      {(
-                        parseInt(entry.amountDrops) / DROPS_PER_XRP
-                      ).toFixed(2)}{" "}
-                      XRP
+                      {isToken
+                        ? parseFloat(entry.amountDrops).toFixed(2)
+                        : (parseInt(entry.amountDrops) / DROPS_PER_XRP).toFixed(2)}{" "}
+                      {unit}
                     </span>
                     {entry.txHash && (
                       <a

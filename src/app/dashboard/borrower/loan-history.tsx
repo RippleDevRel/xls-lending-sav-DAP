@@ -11,7 +11,7 @@ import { ExternalLink } from "lucide-react";
 import { explorerObjectUrl } from "@/lib/explorer";
 import type { LoanState } from "@/types/loan";
 
-export function LoanHistory({ loans }: { loans: LoanState[] }) {
+export function LoanHistory({ loans, token }: { loans: LoanState[]; token?: string }) {
   return (
     <Card>
       <CardHeader>
@@ -32,6 +32,7 @@ export function LoanHistory({ loans }: { loans: LoanState[] }) {
                   <AmountDisplay
                     drops={loan.principalRequested}
                     className="text-sm font-medium"
+                    token={token}
                   />
                   <LoanStatusBadge status={loan.status} />
                   <a

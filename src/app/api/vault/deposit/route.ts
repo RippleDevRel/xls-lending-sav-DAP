@@ -14,11 +14,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const sessionId = validateObjectId(body.sessionId);
     const vaultId = typeof body.vaultId === "string" ? body.vaultId.trim() : null;
-    const amountDrops = validateDrops(body.amountDrops);
 
-    if (!sessionId || !vaultId || !amountDrops) {
+    if (!sessionId || !vaultId) {
       return NextResponse.json(
-        { error: "Valid sessionId, vaultId, and positive amountDrops are required" },
+        { error: "Valid sessionId and vaultId are required" },
         { status: 400 }
       );
     }
@@ -42,11 +41,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Build the Amount field based on asset type
+    let amount: string | Record<string, string>;
+    let logAmount: string;
+    const issuedToken = session.issuedToken;
+
+    if (issuedToken?.type === "IOU" && body.tokenAmount) {
+      amount = {
+        currency: issuedToken.currency,
+        issuer: issuedToken.issuer,
+        value: body.tokenAmount,
+      };
+      logAmount = body.tokenAmount;
+    } else if (issuedToken?.type === "MPT" && body.tokenAmount) {
+      // Convert decimal TUSD to MPT integer (AssetScale 2)
+      const mptValue = String(Math.round(parseFloat(body.tokenAmount) * 100));
+      amount = {
+        mpt_issuance_id: issuedToken.mptIssuanceId,
+        value: mptValue,
+      };
+      logAmount = mptValue;
+    } else {
+      // XRP — amount in drops
+      const amountDrops = validateDrops(body.amountDrops);
+      if (!amountDrops) {
+        return NextResponse.json(
+          { error: "Valid positive amount is required" },
+          { status: 400 }
+        );
+      }
+      amount = amountDrops;
+      logAmount = amountDrops;
+    }
+
     const depositorWallet = walletFromSeed(depositorWalletData.seed);
     const tx = buildVaultDeposit(
       depositorWallet.classicAddress,
       vaultId,
-      amountDrops
+      amount
     );
     const result = await submitTransaction(depositorWallet, tx);
 
@@ -56,7 +88,7 @@ export async function POST(request: NextRequest) {
       sessionId,
       vaultId,
       type: "deposit",
-      amountDrops,
+      amountDrops: logAmount,
       txHash,
     });
 

@@ -24,6 +24,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { explorerObjectUrl } from "@/lib/explorer";
+import { DROPS_PER_XRP } from "@/lib/constants";
 
 interface VaultOnChain {
   vault?: {
@@ -102,6 +103,14 @@ export default function DepositorPage() {
   }
 
   const vault = vaultData?.vault;
+
+  // Detect asset type from on-chain data or session
+  const vaultAsset = vault?.Asset;
+  const isToken = !!(
+    session?.issuedToken ||
+    (vaultAsset && (vaultAsset.issuer || vaultAsset.mpt_issuance_id))
+  );
+  const tokenLabel = isToken ? "TUSD" : undefined;
 
   // Parse vault metadata
   let vaultMeta: { n?: string; w?: string } | null = null;
@@ -188,9 +197,9 @@ export default function DepositorPage() {
                   <span className="text-[11px] font-medium">Total Assets</span>
                 </div>
                 {vault?.AssetsTotal ? (
-                  <AmountDisplay drops={vault.AssetsTotal} className="text-sm font-semibold" />
+                  <AmountDisplay drops={vault.AssetsTotal} className="text-sm font-semibold" token={tokenLabel} />
                 ) : (
-                  <span className="text-sm font-semibold">0.00 XRP</span>
+                  <span className="text-sm font-semibold">0.00 {tokenLabel || "XRP"}</span>
                 )}
               </div>
               <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
@@ -199,9 +208,9 @@ export default function DepositorPage() {
                   <span className="text-[11px] font-medium">Available</span>
                 </div>
                 {vault?.AssetsAvailable ? (
-                  <AmountDisplay drops={vault.AssetsAvailable} className="text-sm font-semibold" />
+                  <AmountDisplay drops={vault.AssetsAvailable} className="text-sm font-semibold" token={tokenLabel} />
                 ) : (
-                  <span className="text-sm font-semibold">0.00 XRP</span>
+                  <span className="text-sm font-semibold">0.00 {tokenLabel || "XRP"}</span>
                 )}
               </div>
               <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
@@ -211,7 +220,9 @@ export default function DepositorPage() {
                 </div>
                 <span className="text-sm font-mono font-semibold">
                   {vault?.shares?.OutstandingAmount
-                    ? (parseInt(vault.shares.OutstandingAmount) / 1_000_000).toFixed(2)
+                    ? isToken
+                      ? parseFloat(vault.shares.OutstandingAmount).toLocaleString()
+                      : (parseInt(vault.shares.OutstandingAmount) / 1_000_000).toFixed(2)
                     : "0"}
                 </span>
               </div>
@@ -222,7 +233,9 @@ export default function DepositorPage() {
                 </div>
                 <span className="text-sm font-semibold">
                   {vault?.AssetsMaximum && vault.AssetsMaximum !== "0"
-                    ? `${(parseInt(vault.AssetsMaximum) / 1_000_000).toLocaleString()} XRP`
+                    ? isToken
+                      ? `${parseFloat(vault.AssetsMaximum).toLocaleString()} ${tokenLabel}`
+                      : `${(parseInt(vault.AssetsMaximum) / DROPS_PER_XRP).toLocaleString()} XRP`
                     : "Unlimited"}
                 </span>
               </div>
@@ -260,13 +273,14 @@ export default function DepositorPage() {
             <CardHeader>
               <CardTitle>Deposit</CardTitle>
               <CardDescription>
-                Add XRP liquidity to the vault so it can fund loans.
+                Add {tokenLabel || "XRP"} liquidity to the vault so it can fund loans.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <DepositForm
                 sessionId={session._id}
                 vaultId={vaultId}
+                issuedToken={session.issuedToken}
                 onSuccess={(msg, txHash) => {
                   setStatus({ type: "success", message: msg, txHash });
                   fetchVault();
@@ -296,6 +310,7 @@ export default function DepositorPage() {
               <WithdrawForm
                 sessionId={session._id}
                 vaultId={vaultId}
+                issuedToken={session.issuedToken}
                 vaultAssetsTotal={vault?.AssetsTotal}
                 vaultAssetsAvailable={vault?.AssetsAvailable}
                 onSuccess={(msg, txHash) => {
@@ -322,6 +337,7 @@ export default function DepositorPage() {
           sessionId={session._id}
           vaultId={vaultId}
           vaultAssetsTotal={vault?.AssetsTotal}
+          token={tokenLabel}
         />
       </motion.div>
     </div>

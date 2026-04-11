@@ -72,7 +72,7 @@ export function buildVaultCreate(
     if (meta.name) mptMeta.n = meta.name;
     if (meta.description) mptMeta.d = meta.description;
     if (meta.icon) mptMeta.i = meta.icon;
-    mptMeta.ac = "defi";
+    mptMeta.ac = "lp-token";
     mptMeta.in = meta.issuerName || "Vault Owner";
     tx.MPTokenMetadata = Buffer.from(JSON.stringify(mptMeta)).toString("hex").toUpperCase();
   }
@@ -83,26 +83,26 @@ export function buildVaultCreate(
 export function buildVaultDeposit(
   depositorAddress: string,
   vaultId: string,
-  amountDrops: string
+  amount: string | Record<string, string>
 ) {
   return {
     TransactionType: "VaultDeposit",
     Account: depositorAddress,
     VaultID: vaultId,
-    Amount: amountDrops,
+    Amount: amount,
   };
 }
 
 export function buildVaultWithdraw(
   address: string,
   vaultId: string,
-  amountDrops: string
+  amount: string | Record<string, string>
 ) {
   return {
     TransactionType: "VaultWithdraw",
     Account: address,
     VaultID: vaultId,
-    Amount: amountDrops,
+    Amount: amount,
   };
 }
 

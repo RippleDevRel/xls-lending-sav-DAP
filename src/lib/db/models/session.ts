@@ -8,7 +8,7 @@ const walletSchema = new Schema(
     seed: { type: String, required: true },
     role: {
       type: String,
-      enum: ["broker", "depositor", "borrower"],
+      enum: ["broker", "depositor", "borrower", "issuer"],
       required: true,
     },
     balance: { type: String },
@@ -23,6 +23,12 @@ const sessionSchema = new Schema(
     wallets: { type: [walletSchema], required: true },
     vaultId: { type: String },
     loanBrokerId: { type: String },
+    issuedToken: {
+      type: { type: String, enum: ["IOU", "MPT"] },
+      currency: { type: String },
+      issuer: { type: String },
+      mptIssuanceId: { type: String },
+    },
   },
   { timestamps: true }
 );

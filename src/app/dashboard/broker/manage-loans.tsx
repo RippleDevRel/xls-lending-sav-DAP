@@ -18,11 +18,14 @@ import type { LoanState } from "@/types/loan";
 interface ManageLoansProps {
   loans: LoanState[];
   sessionId: string;
+  token?: string;
   onUpdate: () => void;
   onStatus: (type: "success" | "error" | "pending", message: string, txHash?: string) => void;
 }
 
-export function ManageLoans({ loans, sessionId, onUpdate, onStatus }: ManageLoansProps) {
+export function ManageLoans({ loans, sessionId, token, onUpdate, onStatus }: ManageLoansProps) {
+  const unit = token || "XRP";
+  const isToken = !!token;
   async function handleDefault(loanId: string) {
     if (!confirm("Are you sure you want to default this loan?")) return;
     onStatus("pending", "Defaulting loan on ledger...");
@@ -94,6 +97,7 @@ export function ManageLoans({ loans, sessionId, onUpdate, onStatus }: ManageLoan
                       <AmountDisplay
                         drops={loan.principalRequested}
                         className="text-sm font-semibold"
+                        token={token}
                       />
                       {isFullyRepaid ? (
                         <LoanStatusBadge status="repaid" />
@@ -150,8 +154,8 @@ export function ManageLoans({ loans, sessionId, onUpdate, onStatus }: ManageLoan
                     <Term label="Paid" value={`${paid}/${loan.paymentTotal}`} />
                     <Term label="Interval" value={`${loan.paymentInterval / 86400}d`} />
                     <Term label="Grace" value={`${loan.gracePeriod / 86400}d`} />
-                    <Term label="Origination" value={`${(parseInt(loan.originationFee) / DROPS_PER_XRP).toFixed(1)} XRP`} />
-                    <Term label="Service fee" value={`${(parseInt(loan.serviceFee) / DROPS_PER_XRP).toFixed(1)} XRP`} />
+                    <Term label="Origination" value={`${isToken ? parseFloat(loan.originationFee).toFixed(1) : (parseInt(loan.originationFee) / DROPS_PER_XRP).toFixed(1)} ${unit}`} />
+                    <Term label="Service fee" value={`${isToken ? parseFloat(loan.serviceFee).toFixed(1) : (parseInt(loan.serviceFee) / DROPS_PER_XRP).toFixed(1)} ${unit}`} />
                   </div>
                 </div>
               );

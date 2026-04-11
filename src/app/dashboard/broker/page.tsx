@@ -18,7 +18,7 @@ const steps = [
 ];
 
 export default function BrokerPage() {
-  const { session } = useSession();
+  const { session, refreshSession } = useSession();
   const [vaultId, setVaultId] = useState<string | null>(
     session?.vaultId || null
   );
@@ -122,9 +122,10 @@ export default function BrokerPage() {
         >
           <CreateVault
             sessionId={session._id}
-            onCreated={(id, brokerId, txHash) => {
+            onCreated={async (id, brokerId, txHash) => {
               setVaultId(id);
               setLoanBrokerId(brokerId);
+              await refreshSession(); // Refresh to pick up issuedToken
               setStatus({
                 type: "success",
                 message: "Vault and broker created on XRPL",
@@ -166,6 +167,7 @@ export default function BrokerPage() {
                   sessionId={session._id}
                   vaultAssetTotal={vaultAssetTotal}
                   vaultAssetsMaximum={vaultAssetsMaximum}
+                  issuedToken={session.issuedToken}
                   brokerDebtMaximum={brokerDebtMaximum}
                   brokerDebtTotal={brokerDebtTotal}
                   onCreated={(txHash) => {
@@ -192,6 +194,7 @@ export default function BrokerPage() {
                 <ManageLoans
                   loans={loans}
                   sessionId={session._id}
+                  token={session.issuedToken ? "TUSD" : undefined}
                   onUpdate={fetchLoans}
                   onStatus={(type, message, txHash) =>
                     setStatus({ type, message, txHash })
