@@ -3,7 +3,7 @@
 A full-stack reference implementation of the XRP Ledger's lending amendments:
 [**XLS-66** (Lending Protocol)](https://github.com/XRPLF/XRPL-Standards/tree/master/XLS-0066-lending-protocol)
 and [**XLS-65** (Single Asset Vault)](https://github.com/XRPLF/XRPL-Standards/tree/master/XLS-0065-single-asset-vault).
-Built as an open-source template for fintechs, asset managers, and devs who want a working starting point for private-credit products on XRPL.
+Built as an open-source template for fintechs, asset managers, and devs who want a working starting point for lending/borrowing products on XRPL.
 
 - Three roles — **Loan Broker**, **Depositor**, **Borrower** — each with a
   dedicated dashboard and wallet.
@@ -30,7 +30,7 @@ faucet, and persists seeds in MongoDB for the session.
 
 | Variable           | Default                                              | Purpose                                   |
 | ------------------ | ---------------------------------------------------- | ----------------------------------------- |
-| `XRPL_NETWORK_URL` | `wss://s.devnet.rippletest.net:51233/`               | rippled WebSocket endpoint                |
+| `XRPL_NETWORK_URL` | `wss://s.devnet.rippletest.net:51233/`               | WebSocket endpoint                |
 | `XRPL_FAUCET_URL`  | `https://faucet.devnet.rippletest.net/accounts`      | Devnet faucet                             |
 | `MONGODB_URI`      | *(required, no default)*                             | Full MongoDB connection string            |
 
