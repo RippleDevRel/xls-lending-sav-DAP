@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { explorerObjectUrl } from "@/lib/explorer";
 import { DROPS_PER_XRP } from "@/lib/constants";
+import { MPTokenIssuanceCreateFlags } from "xrpl";
 
 interface VaultOnChain {
   vault?: {
@@ -247,7 +248,12 @@ export default function DepositorPage() {
                 Type: <span className="font-medium text-foreground">{vault?.Flags === 0 ? "Public" : "Private"}</span>
               </span>
               <span>
-                Shares: <span className="font-medium text-foreground">{vault?.shares?.Flags && (vault.shares.Flags & 8) ? "Non-transferable" : "Transferable"}</span>
+                Shares:{" "}
+                <span className="font-medium text-foreground">
+                  {(vault?.shares?.Flags ?? 0) & MPTokenIssuanceCreateFlags.tfMPTCanTransfer
+                    ? "Transferable"
+                    : "Non-transferable"}
+                </span>
               </span>
               <span>
                 Withdrawal: <span className="font-medium text-foreground">{vault?.WithdrawalPolicy === 1 ? "First come, first served" : "Custom"}</span>

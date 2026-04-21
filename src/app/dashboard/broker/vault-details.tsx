@@ -23,6 +23,7 @@ import {
   Tag,
 } from "lucide-react";
 import { explorerObjectUrl, explorerMptUrl } from "@/lib/explorer";
+import { MPTokenIssuanceCreateFlags } from "xrpl";
 
 interface VaultDetailsProps {
   vaultId: string;
@@ -240,7 +241,17 @@ export function VaultDetails({ vaultId, loanBrokerId, onDeleted }: VaultDetailsP
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-sm">
             <TermRow label="Type" value={vault?.Flags === 0 ? "Public" : "Private"} />
             <TermRow label="Asset" value={assetLabel} />
-            <TermRow label="Shares" value={vault?.shares?.Flags && (vault.shares.Flags & 8) ? "Non-transferable" : "Transferable"} />
+            <TermRow
+              label="Shares"
+              value={
+                // XLS-65: the share MPT exposes tfMPTCanTransfer (0x20) on its
+                // Flags. Presence of the bit = transferable; absence = the vault
+                // was created with tfVaultShareNonTransferable.
+                (vault?.shares?.Flags ?? 0) & MPTokenIssuanceCreateFlags.tfMPTCanTransfer
+                  ? "Transferable"
+                  : "Non-transferable"
+              }
+            />
             <TermRow label="Withdrawal" value={vault?.WithdrawalPolicy === 1 ? "First come, first served" : "Custom"} />
             {vaultMeta?.w && (
               <div className="flex items-center justify-between sm:flex-col sm:items-start sm:gap-0.5">
