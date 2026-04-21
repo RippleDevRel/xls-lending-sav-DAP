@@ -1,11 +1,9 @@
-# XLS-66 Lending Protocol — Reference App
+# XLS-66 Lending Protocol & XLS-65 SAV — DAP
 
 A full-stack reference implementation of the XRP Ledger's lending amendments:
 [**XLS-66** (Lending Protocol)](https://github.com/XRPLF/XRPL-Standards/tree/master/XLS-0066-lending-protocol)
 and [**XLS-65** (Single Asset Vault)](https://github.com/XRPLF/XRPL-Standards/tree/master/XLS-0065-single-asset-vault).
-Built as an open-source template for fintechs, asset managers, custodians, and
-Ripple teams who want a working starting point for private-credit products on
-XRPL.
+Built as an open-source template for fintechs, asset managers, and devs who want a working starting point for private-credit products on XRPL.
 
 - Three roles — **Loan Broker**, **Depositor**, **Borrower** — each with a
   dedicated dashboard and wallet.
@@ -171,7 +169,7 @@ Deleting a vault requires dismantling the dependency chain first:
 
 ```
 For each active loan:
-    LoanManage (tfLoanDefault) → LoanDelete
+LoanManage (tfLoanDefault) → LoanDelete
 LoanBrokerCoverWithdraw
 LoanBrokerDelete
 VaultDelete
@@ -287,14 +285,13 @@ src/
   anything other than `tesSUCCESS`, so the DB never records an assumed state.
 - **Demo wallets are server-controlled.** For a production app where each
   role is a real user, move wallet key material to the client (or to a
-  dedicated KMS) and have the client counter-sign `LoanSet`.
+  dedicated KMS) and have the client co-sign `LoanSet`.
 
-## Out of scope (candidates for V2)
+## Out of scope (TBD)
 
 - Private vaults with `PermissionedDomain` credentials (XLS-80)
 - Collateralized loans using `TokenEscrow` (XLS-85)
 - Batch issuance with XLS-56
-- Palisade custody integration (waiting on XLS-65/66 support)
 - Secondary share market (vault share trading)
 
 ## References
