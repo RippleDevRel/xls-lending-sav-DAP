@@ -189,9 +189,18 @@ Login (email) → 4 wallets created + faucet-funded
 
 ## API surface
 
-All routes below are protected by `src/proxy.ts` — a valid `xls66-auth`
+All routes below are described by an **OpenAPI 3.1** spec at
+[`docs/openapi.yaml`](./docs/openapi.yaml). While running the dev server
+the same file is served from:
+
+- `GET /api/openapi` — raw YAML (or JSON with `Accept: application/json`)
+- `GET /api/docs` — Swagger UI rendering of the spec
+
+All routes are protected by `src/proxy.ts` — a valid `xls66-auth`
 cookie (MongoDB ObjectId of the session) is required. `sessionId` is read
 from the cookie, never the body, so cross-session IDOR is impossible.
+Public exceptions: `POST /api/session`, `GET /api/openapi`, `GET /api/docs`,
+and the `/terms` page.
 
 ### Session
 

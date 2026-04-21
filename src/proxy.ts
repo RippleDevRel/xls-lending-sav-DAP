@@ -4,6 +4,8 @@ const COOKIE_NAME = "xls66-auth";
 
 const PUBLIC_PATHS = [
   "/api/session",
+  "/api/openapi",
+  "/api/docs",
   "/terms",
 ];
 
