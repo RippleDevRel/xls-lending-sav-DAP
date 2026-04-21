@@ -73,11 +73,21 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
     url: SITE_URL,
     locale: "en_US",
+    images: [
+      {
+        url: "/og_image_DAP6665.png",
+        width: 1200,
+        height: 630,
+        alt: SITE_NAME,
+        type: "image/png",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: SITE_NAME,
     description: SITE_DESCRIPTION,
+    images: ["/og_image_DAP6665.png"],
   },
   other: {
     "format-detection": "telephone=no",
