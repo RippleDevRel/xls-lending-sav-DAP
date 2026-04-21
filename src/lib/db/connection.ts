@@ -1,8 +1,8 @@
 import mongoose from "mongoose";
 
-if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI environment variable is required");
-const MONGODB_URI: string = process.env.MONGODB_URI;
-
+// Lazy check — MONGODB_URI must be set at request time, not at build/import
+// time. Failing fast on missing env breaks `next build` in CI where no DB
+// is available, and the app is fine as long as no route actually connects.
 const cached = global as typeof globalThis & {
   mongoose: {
     conn: typeof mongoose | null;
@@ -17,7 +17,9 @@ if (!cached.mongoose) {
 export async function connectDB() {
   if (cached.mongoose.conn) return cached.mongoose.conn;
   if (!cached.mongoose.promise) {
-    cached.mongoose.promise = mongoose.connect(MONGODB_URI);
+    const uri = process.env.MONGODB_URI;
+    if (!uri) throw new Error("MONGODB_URI environment variable is required");
+    cached.mongoose.promise = mongoose.connect(uri);
   }
   cached.mongoose.conn = await cached.mongoose.promise;
   return cached.mongoose.conn;
