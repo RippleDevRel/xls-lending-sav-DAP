@@ -61,16 +61,14 @@ export default function BrokerPage() {
     } catch { /* ignore */ }
   }, [vaultId, loanBrokerId]);
 
-  const sessionId = session?._id;
-
   const fetchLoans = useCallback(async () => {
-    if (!sessionId) return;
-    const res = await fetch(`/api/loan?sessionId=${sessionId}`);
+    if (!session) return;
+    const res = await fetch("/api/loan");
     if (res.ok) {
       const data = await res.json();
       setLoans(data.loans);
     }
-  }, [sessionId]);
+  }, [session]);
 
   useEffect(() => {
     fetchLoans();
@@ -121,7 +119,6 @@ export default function BrokerPage() {
           transition={{ duration: 0.4 }}
         >
           <CreateVault
-            sessionId={session._id}
             onCreated={async (id, brokerId, txHash) => {
               setVaultId(id);
               setLoanBrokerId(brokerId);
@@ -145,7 +142,6 @@ export default function BrokerPage() {
           >
             <VaultDetails
               vaultId={vaultId}
-              sessionId={session._id}
               loanBrokerId={loanBrokerId}
               onDeleted={(txHash) => {
                 setVaultId(null);
@@ -164,7 +160,6 @@ export default function BrokerPage() {
                 transition={{ duration: 0.4, delay: 0.1 }}
               >
                 <IssueLoan
-                  sessionId={session._id}
                   vaultAssetTotal={vaultAssetTotal}
                   vaultAssetsMaximum={vaultAssetsMaximum}
                   issuedToken={session.issuedToken}
@@ -193,7 +188,6 @@ export default function BrokerPage() {
               >
                 <ManageLoans
                   loans={loans}
-                  sessionId={session._id}
                   token={session.issuedToken ? "TUSD" : undefined}
                   onUpdate={fetchLoans}
                   onStatus={(type, message, txHash) =>

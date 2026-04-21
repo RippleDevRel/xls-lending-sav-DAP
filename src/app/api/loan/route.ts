@@ -1,79 +1,76 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
-import { validateObjectId, validateDrops, validateAmount, validateNumber } from "@/lib/validation";
+import { validateAssetAmount, validateNumber } from "@/lib/validation";
+import { requireAuthSession } from "@/lib/auth";
 import { connectDB, SessionModel, LoanModel } from "@/lib/db";
-import { walletFromSeed } from "@/lib/xrpl/wallet";
-import { buildLoanSet, signAndSubmitLoanSet } from "@/lib/xrpl/loan";
+import { buildLoanSet, signAndSubmitLoanSet, getLoanInfo } from "@/lib/xrpl/loan";
+import { getRoleWallet, extractCreatedLedgerId, hasIssuedToken } from "@/lib/xrpl/helpers";
 import {
-  DEFAULT_INTEREST_RATE,
+  DEFAULT_INTEREST_RATE_BPS,
   DEFAULT_PAYMENT_TOTAL,
   DEFAULT_PAYMENT_INTERVAL,
   DEFAULT_GRACE_PERIOD,
-  DEFAULT_ORIGINATION_FEE,
-  DEFAULT_SERVICE_FEE,
+  DEFAULT_ORIGINATION_FEE_DROPS,
+  DEFAULT_SERVICE_FEE_DROPS,
+  DEFAULT_ORIGINATION_FEE_TOKEN,
+  DEFAULT_SERVICE_FEE_TOKEN,
+  DEFAULT_PRINCIPAL_DROPS,
+  DEFAULT_PRINCIPAL_TOKEN,
+  SECONDS_PER_DAY,
+  MPT_SCALE_MULTIPLIER,
 } from "@/lib/constants";
+
+const MAX_INTERVAL_SECONDS = 365 * SECONDS_PER_DAY;
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const sessionId = validateObjectId(body.sessionId);
-
+    const sessionId = await requireAuthSession();
     if (!sessionId) {
-      return NextResponse.json(
-        { error: "Valid sessionId is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const body = await request.json();
 
     await connectDB();
     const session = await SessionModel.findById(sessionId);
     if (!session || !session.loanBrokerId) {
-      return NextResponse.json(
-        { error: "Session or broker not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Session or broker not found" }, { status: 404 });
     }
 
-    const brokerWalletData = session.wallets.find(
-      (w: { role: string }) => w.role === "broker"
-    );
-    const borrowerWalletData = session.wallets.find(
-      (w: { role: string }) => w.role === "borrower"
-    );
-    if (!brokerWalletData || !borrowerWalletData) {
-      return NextResponse.json(
-        { error: "Wallet not found" },
-        { status: 400 }
-      );
-    }
+    const brokerWallet = getRoleWallet(session, "broker");
+    const borrowerWallet = getRoleWallet(session, "borrower");
 
-    const brokerWallet = walletFromSeed(brokerWalletData.seed);
-    const borrowerWallet = walletFromSeed(borrowerWalletData.seed);
+    const isToken = hasIssuedToken(session.issuedToken);
+    const isMPT = isToken && session.issuedToken?.type === "MPT";
+    const valAmt = (v: unknown) => validateAssetAmount(v, isToken);
+    const defaultPrincipal = isToken ? DEFAULT_PRINCIPAL_TOKEN : DEFAULT_PRINCIPAL_DROPS;
+    const defaultOrigFee = isToken ? DEFAULT_ORIGINATION_FEE_TOKEN : DEFAULT_ORIGINATION_FEE_DROPS;
+    const defaultSvcFee = isToken ? DEFAULT_SERVICE_FEE_TOKEN : DEFAULT_SERVICE_FEE_DROPS;
 
-    // Use validateAmount for tokens (decimal), validateDrops for XRP (integer)
-    const isToken = !!session.issuedToken;
-    const valAmt = isToken ? validateAmount : validateDrops;
-    const defaultPrincipal = isToken ? "20" : "20000000";
-    const defaultOrigFee = isToken ? "1" : DEFAULT_ORIGINATION_FEE;
-    const defaultSvcFee = isToken ? "0.5" : DEFAULT_SERVICE_FEE;
+    // DB/UI convention: human decimals for tokens, drops for XRP.
+    // MPT ledger convention: integer units scaled by AssetScale (else tecPRECISION_LOSS
+    // fires because the on-chain amortization rounds a sub-scale value to zero).
+    // So we keep "human" values for persistence and only scale at the tx boundary.
+    const toLedger = (human: string): string =>
+      isMPT ? String(Math.round(parseFloat(human) * MPT_SCALE_MULTIPLIER)) : human;
 
     const principalRequested = valAmt(body.principalRequested) || defaultPrincipal;
-    const interestRate = validateNumber(body.interestRate, 0, 50000) ?? DEFAULT_INTEREST_RATE;
+    const interestRate = validateNumber(body.interestRate, 0, 50000) ?? DEFAULT_INTEREST_RATE_BPS;
     const paymentTotal = validateNumber(body.paymentTotal, 1, 120) ?? DEFAULT_PAYMENT_TOTAL;
-    const paymentInterval = validateNumber(body.paymentInterval, 60, 31536000) ?? DEFAULT_PAYMENT_INTERVAL;
-    const gracePeriod = validateNumber(body.gracePeriod, 1, 31536000) ?? DEFAULT_GRACE_PERIOD;
+    const paymentInterval =
+      validateNumber(body.paymentInterval, 60, MAX_INTERVAL_SECONDS) ?? DEFAULT_PAYMENT_INTERVAL;
+    const gracePeriod =
+      validateNumber(body.gracePeriod, 1, MAX_INTERVAL_SECONDS) ?? DEFAULT_GRACE_PERIOD;
     const originationFee = valAmt(body.originationFee) || defaultOrigFee;
     const serviceFee = valAmt(body.serviceFee) || defaultSvcFee;
 
-    // Optional advanced fields — only include if > 0 (ledger rejects 0 values)
+    // Advanced fields — ledger rejects 0 values, so we only include when > 0.
     const latePaymentFee = valAmt(body.latePaymentFee) || undefined;
     const closePaymentFee = valAmt(body.closePaymentFee) || undefined;
-    const overpaymentFee = validateNumber(body.overpaymentFee, 1, 100000) ?? undefined;
-    const lateInterestRate = validateNumber(body.lateInterestRate, 1, 100000) ?? undefined;
-    const closeInterestRate = validateNumber(body.closeInterestRate, 1, 100000) ?? undefined;
-    const overpaymentInterestRate = validateNumber(body.overpaymentInterestRate, 1, 100000) ?? undefined;
+    const overpaymentFee = validateNumber(body.overpaymentFee, 1, 100_000) ?? undefined;
+    const lateInterestRate = validateNumber(body.lateInterestRate, 1, 100_000) ?? undefined;
+    const closeInterestRate = validateNumber(body.closeInterestRate, 1, 100_000) ?? undefined;
+    const overpaymentInterestRate = validateNumber(body.overpaymentInterestRate, 1, 100_000) ?? undefined;
 
-    // Loan metadata
     let loanData: string | undefined;
     if (body.loanName && typeof body.loanName === "string") {
       const name = body.loanName.trim().slice(0, 64).replace(/[\x00-\x1F\x7F]/g, "");
@@ -84,39 +81,25 @@ export async function POST(request: NextRequest) {
       brokerAddress: brokerWallet.classicAddress,
       borrowerAddress: borrowerWallet.classicAddress,
       loanBrokerId: session.loanBrokerId,
-      principalRequested,
+      principalRequested: toLedger(principalRequested),
       interestRate,
       paymentTotal,
       paymentInterval,
       gracePeriod,
-      originationFee,
-      serviceFee,
-      latePaymentFee,
-      closePaymentFee,
+      originationFee: toLedger(originationFee),
+      serviceFee: toLedger(serviceFee),
+      latePaymentFee: latePaymentFee ? toLedger(latePaymentFee) : undefined,
+      closePaymentFee: closePaymentFee ? toLedger(closePaymentFee) : undefined,
       overpaymentFee,
       lateInterestRate,
       closeInterestRate,
       overpaymentInterestRate,
       data: loanData,
+      allowOverpayment: body.allowOverpayment === true,
     });
 
-    const result = await signAndSubmitLoanSet(
-      brokerWallet,
-      borrowerWallet,
-      loanSetTx
-    );
-
-    // Extract loan ID from metadata
-    const meta = result.result.meta as unknown as Record<string, unknown>;
-    const affectedNodes = (meta?.AffectedNodes as Array<Record<string, unknown>>) || [];
-    let loanId = "";
-    for (const node of affectedNodes) {
-      const created = node.CreatedNode as Record<string, unknown> | undefined;
-      if (created?.LedgerEntryType === "Loan") {
-        loanId = created.LedgerIndex as string;
-        break;
-      }
-    }
+    const result = await signAndSubmitLoanSet(brokerWallet, borrowerWallet, loanSetTx);
+    const loanId = extractCreatedLedgerId(result, "Loan");
 
     if (loanId) {
       await LoanModel.create({
@@ -140,32 +123,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ loanId, result: result.result }, { status: 201 });
   } catch (error) {
     console.error("Loan creation error:", error);
-    return NextResponse.json(
-      { error: getErrorMessage(error) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const sessionId = request.nextUrl.searchParams.get("sessionId");
+    const sessionId = await requireAuthSession();
     if (!sessionId) {
-      return NextResponse.json(
-        { error: "sessionId is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     await connectDB();
+    const session = await SessionModel.findById(sessionId);
+    const isMPT = session?.issuedToken?.type === "MPT";
+    // On-ledger MPT values are integer units scaled by AssetScale; the DB/UI
+    // convention is human decimals, so unscale on read-back.
+    const fromLedger = (v: string | number): string =>
+      isMPT ? (Number(v || 0) / MPT_SCALE_MULTIPLIER).toString() : String(v ?? "0");
+
     const loans = await LoanModel.find({ sessionId });
 
-    // Sync loans with on-chain state
-    const { getLoanInfo } = await import("@/lib/xrpl/loan");
     const synced = await Promise.all(
       loans.map(async (loan) => {
         const doc = loan.toObject();
-        // Skip loans already marked as closed/defaulted and confirmed off-ledger
         if (doc.status === "defaulted" || doc.status === "closed") return doc;
 
         try {
@@ -173,7 +154,9 @@ export async function GET(request: NextRequest) {
           const node = info.result?.node;
           if (node) {
             doc.paymentsRemaining = node.PaymentRemaining ?? doc.paymentsRemaining;
-            doc.principalOutstanding = node.TotalValueOutstanding ?? doc.principalOutstanding;
+            doc.principalOutstanding = node.TotalValueOutstanding
+              ? fromLedger(node.TotalValueOutstanding)
+              : doc.principalOutstanding;
             if (doc.paymentsRemaining === 0 || Number(doc.principalOutstanding) === 0) {
               doc.status = "repaid";
             }
@@ -184,13 +167,8 @@ export async function GET(request: NextRequest) {
             });
           }
         } catch {
-          // Loan not on ledger — it was deleted (closed or defaulted)
-          if (doc.status === "repaid" || doc.paymentsRemaining === 0) {
-            // Was repaid then closed via LoanDelete
-            doc.status = "closed";
-          } else {
-            doc.status = "defaulted";
-          }
+          // Loan is off-ledger — decide which absorbing state.
+          doc.status = doc.status === "repaid" || doc.paymentsRemaining === 0 ? "closed" : "defaulted";
           doc.paymentsRemaining = 0;
           doc.principalOutstanding = "0";
           await LoanModel.findByIdAndUpdate(doc._id, {
@@ -206,9 +184,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ loans: synced });
   } catch (error) {
     console.error("Loan list error:", error);
-    return NextResponse.json(
-      { error: getErrorMessage(error) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }

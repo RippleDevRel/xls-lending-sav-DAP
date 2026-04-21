@@ -1,15 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { connectDB, SessionModel } from "@/lib/db";
 import { getXrplClient } from "@/lib/xrpl/client";
+import { requireAuthSession } from "@/lib/auth";
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const sessionId = request.nextUrl.searchParams.get("sessionId");
+    const sessionId = await requireAuthSession();
     if (!sessionId) {
-      return NextResponse.json(
-        { error: "sessionId is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     await connectDB();

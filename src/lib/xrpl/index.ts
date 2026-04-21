@@ -22,7 +22,19 @@ export {
   buildLoanPay,
   buildLoanDelete,
   buildLoanManage,
-  LOAN_MANAGE_FLAGS,
+  LoanSetFlags,
+  LoanManageFlags,
+  LoanPayFlags,
   getLoanInfo,
 } from "./loan";
 export type { LoanSetParams } from "./loan";
+export {
+  getRoleWallet,
+  buildAmountField,
+  hasIssuedToken,
+  extractCreatedLedgerId,
+  assertTxSuccess,
+  fetchVaultSnapshot,
+  unscaleVaultNodeForMPT,
+  unscaleLoanNodeForMPT,
+} from "./helpers";

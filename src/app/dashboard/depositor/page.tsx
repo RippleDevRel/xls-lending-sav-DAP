@@ -278,7 +278,6 @@ export default function DepositorPage() {
             </CardHeader>
             <CardContent>
               <DepositForm
-                sessionId={session._id}
                 vaultId={vaultId}
                 issuedToken={session.issuedToken}
                 onSuccess={(msg, txHash) => {
@@ -308,7 +307,6 @@ export default function DepositorPage() {
             </CardHeader>
             <CardContent>
               <WithdrawForm
-                sessionId={session._id}
                 vaultId={vaultId}
                 issuedToken={session.issuedToken}
                 vaultAssetsTotal={vault?.AssetsTotal}
@@ -334,7 +332,6 @@ export default function DepositorPage() {
         transition={{ duration: 0.4, delay: 0.3 }}
       >
         <DepositHistory
-          sessionId={session._id}
           vaultId={vaultId}
           vaultAssetsTotal={vault?.AssetsTotal}
           token={tokenLabel}

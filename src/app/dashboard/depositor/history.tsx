@@ -35,14 +35,12 @@ interface Summary {
 }
 
 interface DepositHistoryProps {
-  sessionId: string;
   vaultId: string;
   vaultAssetsTotal?: string;
   token?: string;
 }
 
 export function DepositHistory({
-  sessionId,
   vaultId,
   vaultAssetsTotal,
   token,
@@ -53,15 +51,13 @@ export function DepositHistory({
   const [summary, setSummary] = useState<Summary | null>(null);
 
   const fetchHistory = useCallback(async () => {
-    const res = await fetch(
-      `/api/vault/history?sessionId=${sessionId}&vaultId=${vaultId}`
-    );
+    const res = await fetch(`/api/vault/history?vaultId=${vaultId}`);
     if (res.ok) {
       const data = await res.json();
       setHistory(data.history);
       setSummary(data.summary);
     }
-  }, [sessionId, vaultId]);
+  }, [vaultId]);
 
   useEffect(() => {
     fetchHistory();

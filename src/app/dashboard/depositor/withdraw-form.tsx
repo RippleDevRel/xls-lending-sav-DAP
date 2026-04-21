@@ -9,7 +9,6 @@ import { DROPS_PER_XRP } from "@/lib/constants";
 import type { IssuedToken } from "@/types/session";
 
 interface WithdrawFormProps {
-  sessionId: string;
   vaultId: string;
   issuedToken?: IssuedToken;
   vaultAssetsTotal?: string;
@@ -20,7 +19,6 @@ interface WithdrawFormProps {
 }
 
 export function WithdrawForm({
-  sessionId,
   vaultId,
   issuedToken,
   vaultAssetsTotal,
@@ -34,18 +32,26 @@ export function WithdrawForm({
   const [amount, setAmount] = useState(isToken ? "100" : "10");
   const [loading, setLoading] = useState(false);
 
+  /** Convert a ledger amount (drops for XRP, token units for IOU/MPT) to a human "X.XX" string. */
+  function toDisplay(ledgerValue: string): string {
+    if (isToken) return parseFloat(ledgerValue || "0").toFixed(2);
+    return (parseInt(ledgerValue || "0") / DROPS_PER_XRP).toFixed(2);
+  }
+
+  /**
+   * amountValue is always in the server/ledger representation:
+   *   - drops string for XRP
+   *   - decimal string for IOU/MPT (the API rescales MPT internally)
+   */
   async function handleWithdraw(amountValue: string) {
     setLoading(true);
-    onPending(`Withdrawing ${amountValue} ${unit} from vault...`);
+    const display = toDisplay(amountValue);
+    onPending(`Withdrawing ${display} ${unit} from vault...`);
 
     try {
-      const body: Record<string, unknown> = { sessionId, vaultId };
-
-      if (isToken) {
-        body.tokenAmount = amountValue;
-      } else {
-        body.amountDrops = amountValue;
-      }
+      const body: Record<string, unknown> = { vaultId };
+      if (isToken) body.tokenAmount = amountValue;
+      else body.amountDrops = amountValue;
 
       const res = await fetch("/api/vault/withdraw", {
         method: "POST",
@@ -54,7 +60,7 @@ export function WithdrawForm({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      onSuccess(`Redeemed ${amountValue} ${unit} from vault`, data.result?.hash);
+      onSuccess(`Redeemed ${display} ${unit} from vault`, data.result?.hash);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Withdrawal failed");
     } finally {
@@ -73,28 +79,22 @@ export function WithdrawForm({
   }
 
   async function handleWithdrawAll() {
-    // Fetch fresh vault state
-    let availableDrops = vaultAssetsAvailable || vaultAssetsTotal || "0";
+    let availableLedger = vaultAssetsAvailable || vaultAssetsTotal || "0";
     try {
       const res = await fetch(`/api/vault/${vaultId}`);
       if (res.ok) {
         const data = await res.json();
         const v = data.onLedger?.vault;
-        availableDrops = v?.AssetsAvailable || v?.AssetsTotal || availableDrops;
+        availableLedger = v?.AssetsAvailable || v?.AssetsTotal || availableLedger;
       }
     } catch { /* use prop value */ }
 
-    if (Number(availableDrops) === 0) {
+    if (Number(availableLedger) === 0) {
       onError("No available assets to withdraw. Some may be locked in active loans.");
       return;
     }
 
-    if (isToken) {
-      // For tokens, send the raw value — the API will handle formatting
-      await handleWithdraw(availableDrops);
-    } else {
-      await handleWithdraw(availableDrops);
-    }
+    await handleWithdraw(availableLedger);
   }
 
   // Use AssetsAvailable (not Total) — some assets may be locked in loans

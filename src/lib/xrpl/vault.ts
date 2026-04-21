@@ -1,22 +1,27 @@
-import { Wallet } from "xrpl";
+/**
+ * XLS-65 Single Asset Vault transaction builders.
+ * Spec: https://github.com/XRPLF/XRPL-Standards/tree/master/XLS-0065-single-asset-vault
+ */
+import { Wallet, VaultCreateFlags } from "xrpl";
 import { getXrplClient } from "./client";
-
-// XLS-65 types are not yet in xrpl.js TypeScript definitions,
-// but the binary codec supports them at runtime.
+import { assertTxSuccess } from "./helpers";
 
 export interface VaultAsset {
   type: "XRP" | "IOU" | "MPT";
-  currency?: string; // for IOU, e.g. "USD"
-  issuer?: string; // for IOU
-  mptIssuanceId?: string; // for MPT
+  currency?: string; // IOU currency code, e.g. "USD"
+  issuer?: string; // IOU issuer account
+  mptIssuanceId?: string; // XLS-33 MPTokenIssuance ID
 }
 
 export interface VaultCreateOptions {
   asset?: VaultAsset;
   name?: string;
   website?: string;
+  /** Deposit cap. Drops for XRP; asset units for IOU/MPT. */
   assetsMaximum?: string;
+  /** tfVaultShareNonTransferable — shares cannot be transferred to another account. */
   nonTransferableShares?: boolean;
+  /** XLS-89 compressed metadata for the share MPT (`t`, `n`, `d`, `i`, `in`). */
   shareMetadata?: {
     ticker?: string;
     name?: string;
@@ -26,11 +31,14 @@ export interface VaultCreateOptions {
   };
 }
 
+/**
+ * Build a VaultCreate transaction. The vault's pseudo-account issues a share
+ * MPT; share metadata is encoded as hex JSON via XLS-89 compressed keys.
+ */
 export function buildVaultCreate(
   ownerAddress: string,
   options: VaultCreateOptions = {}
 ) {
-  // Build asset field based on type
   let asset: Record<string, string>;
   const assetConfig = options.asset;
   if (assetConfig?.type === "IOU" && assetConfig.currency && assetConfig.issuer) {
@@ -45,11 +53,10 @@ export function buildVaultCreate(
     TransactionType: "VaultCreate",
     Account: ownerAddress,
     Asset: asset,
-    Flags: options.nonTransferableShares ? 2 : 0, // tfVaultShareNonTransferable = 0x00000002
-    WithdrawalPolicy: 1,
+    Flags: options.nonTransferableShares ? VaultCreateFlags.tfVaultShareNonTransferable : 0,
+    WithdrawalPolicy: 1, // vaultStrategyFirstComeFirstServe
   };
 
-  // Vault metadata (name, website) encoded as hex JSON
   if (options.name || options.website) {
     const data: Record<string, string> = {};
     if (options.name) data.n = options.name;
@@ -57,14 +64,10 @@ export function buildVaultCreate(
     tx.Data = Buffer.from(JSON.stringify(data)).toString("hex").toUpperCase();
   }
 
-  // Max deposit cap
   if (options.assetsMaximum) {
     tx.AssetsMaximum = options.assetsMaximum;
   }
 
-  // MPToken metadata for vault shares — XLS-89 compressed keys
-  // Required: t (ticker), n (name), i (icon), ac (asset_class), in (issuer_name)
-  // Optional: d (desc), as (asset_subclass), us (uris), ai (additional_info)
   if (options.shareMetadata) {
     const meta = options.shareMetadata;
     const mptMeta: Record<string, unknown> = {};
@@ -80,6 +83,7 @@ export function buildVaultCreate(
   return tx;
 }
 
+/** VaultDeposit — move assets into the vault in exchange for shares. */
 export function buildVaultDeposit(
   depositorAddress: string,
   vaultId: string,
@@ -93,6 +97,7 @@ export function buildVaultDeposit(
   };
 }
 
+/** VaultWithdraw — redeem assets out of the vault. Zero amount redeems all shares. */
 export function buildVaultWithdraw(
   address: string,
   vaultId: string,
@@ -106,6 +111,10 @@ export function buildVaultWithdraw(
   };
 }
 
+/**
+ * VaultDelete — only succeeds when AssetsTotal == 0 and OutstandingAmount == 0.
+ * The caller must be the vault Owner.
+ */
 export function buildVaultDelete(ownerAddress: string, vaultId: string) {
   return {
     TransactionType: "VaultDelete",
@@ -114,6 +123,10 @@ export function buildVaultDelete(ownerAddress: string, vaultId: string) {
   };
 }
 
+/**
+ * Autofill, sign and submit a transaction. Throws if the ledger returns
+ * anything other than tesSUCCESS so callers never silently persist DB state.
+ */
 export async function submitTransaction(
   wallet: Wallet,
   tx: Record<string, unknown>
@@ -123,25 +136,11 @@ export async function submitTransaction(
   const prepared = await client.autofill(tx as any);
   const signed = wallet.sign(prepared);
   const result = await client.submitAndWait(signed.tx_blob);
-
-  // Verify the transaction actually succeeded on-chain
-  const meta = result.result.meta as unknown as Record<string, unknown>;
-  const engineResult =
-    (meta?.TransactionResult as string) ||
-    (result.result as unknown as Record<string, unknown>).engine_result as string ||
-    "";
-
-  if (engineResult && engineResult !== "tesSUCCESS") {
-    const txType = tx.TransactionType || "Transaction";
-    const hash = (result.result as unknown as Record<string, unknown>).hash || "";
-    throw new Error(
-      `${txType} failed: ${engineResult} (tx: ${hash})`
-    );
-  }
-
+  assertTxSuccess(result, String(tx.TransactionType || "Transaction"));
   return result;
 }
 
+/** vault_info — rippled RPC returning the Vault ledger entry and share MPT. */
 export async function getVaultInfo(vaultId: string) {
   const client = await getXrplClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

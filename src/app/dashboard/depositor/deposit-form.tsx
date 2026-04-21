@@ -9,7 +9,6 @@ import { DROPS_PER_XRP } from "@/lib/constants";
 import type { IssuedToken } from "@/types/session";
 
 interface DepositFormProps {
-  sessionId: string;
   vaultId: string;
   issuedToken?: IssuedToken;
   onSuccess: (message: string, txHash?: string) => void;
@@ -18,7 +17,6 @@ interface DepositFormProps {
 }
 
 export function DepositForm({
-  sessionId,
   vaultId,
   issuedToken,
   onSuccess,
@@ -36,7 +34,7 @@ export function DepositForm({
     onPending(`Depositing ${amount} ${unit} into vault...`);
 
     try {
-      const body: Record<string, unknown> = { sessionId, vaultId };
+      const body: Record<string, unknown> = { vaultId };
 
       if (isToken) {
         body.tokenAmount = amount;

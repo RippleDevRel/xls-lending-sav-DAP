@@ -20,17 +20,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { motion } from "motion/react";
-import { DROPS_PER_XRP } from "@/lib/constants";
+import { createVaultAndBroker } from "./actions";
 
 interface CreateVaultProps {
-  sessionId: string;
   onCreated: (vaultId: string, brokerId: string, txHash?: string) => void;
   onError: (message: string) => void;
   onPending: (message: string) => void;
 }
 
 export function CreateVault({
-  sessionId,
   onCreated,
   onError,
   onPending,
@@ -68,76 +66,34 @@ export function CreateVault({
 
   async function handleCreate() {
     setLoading(true);
-    const pendingMsg = assetType !== "XRP"
-      ? `Setting up TUSD (${assetType})... This may take a moment.`
-      : "Creating vault and broker on XRPL Devnet...";
-    onPending(pendingMsg);
+    onPending(
+      assetType !== "XRP"
+        ? `Setting up TUSD (${assetType})... This may take a moment.`
+        : "Creating vault and broker on XRPL Devnet..."
+    );
 
     try {
-      const vaultOptions: Record<string, unknown> = {};
-
-      // Asset — IOU/MPT setup is handled automatically on the server
-      vaultOptions.asset = { type: assetType };
-
-      if (vaultName.trim()) vaultOptions.name = vaultName.trim();
-      if (website.trim()) vaultOptions.website = website.trim();
-      if (nonTransferable) vaultOptions.nonTransferableShares = true;
-      if (hasMaxCap && maxCapXrp) {
-        vaultOptions.assetsMaximum = assetType === "XRP"
-          ? String(Math.round(parseFloat(maxCapXrp) * DROPS_PER_XRP))
-          : maxCapXrp;
-      }
-      if (shareTicker.trim() || shareName.trim() || shareDesc.trim() || shareIcon.trim() || shareIssuerName.trim()) {
-        vaultOptions.shareMetadata = {
-          ...(shareTicker.trim() && { ticker: shareTicker.trim() }),
-          ...(shareName.trim() && { name: shareName.trim() }),
-          ...(shareDesc.trim() && { description: shareDesc.trim() }),
-          ...(shareIcon.trim() && { icon: shareIcon.trim() }),
-          ...(shareIssuerName.trim() && { issuerName: shareIssuerName.trim() }),
-        };
-      }
-
-      const vaultRes = await fetch("/api/vault", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, vaultOptions }),
+      const { vaultId, loanBrokerId, txHash } = await createVaultAndBroker({
+        assetType,
+        vaultName,
+        website,
+        nonTransferable,
+        hasMaxCap,
+        maxCap: maxCapXrp,
+        shareMetadata: {
+          ticker: shareTicker,
+          name: shareName,
+          description: shareDesc,
+          icon: shareIcon,
+          issuerName: shareIssuerName,
+        },
+        managementFee,
+        debtMaximum,
+        coverRateMin,
+        coverRateLiq,
+        firstLossCapital,
       });
-      const vaultData = await vaultRes.json();
-      if (!vaultRes.ok) throw new Error(vaultData.error);
-
-      const vaultId = vaultData.vault.vaultId;
-
-      // Build broker options
-      const brokerOptions: Record<string, number> = {};
-      if (managementFee) brokerOptions.managementFeeRate = Math.round(parseFloat(managementFee) * 100);
-      if (debtMaximum) {
-        brokerOptions.debtMaximum = assetType === "XRP"
-          ? Math.round(parseFloat(debtMaximum) * DROPS_PER_XRP)
-          : parseFloat(debtMaximum);
-      }
-      if (coverRateMin) brokerOptions.coverRateMinimum = Math.round(parseFloat(coverRateMin) * 100);
-      if (coverRateLiq) brokerOptions.coverRateLiquidation = Math.round(parseFloat(coverRateLiq) * 100);
-
-      const coverAmountDrops = firstLossCapital
-        ? assetType === "XRP"
-          ? String(Math.round(parseFloat(firstLossCapital) * DROPS_PER_XRP))
-          : firstLossCapital
-        : undefined;
-
-      const brokerRes = await fetch("/api/broker", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          vaultId,
-          brokerOptions: Object.keys(brokerOptions).length > 0 ? brokerOptions : undefined,
-          coverAmountDrops,
-        }),
-      });
-      const brokerData = await brokerRes.json();
-      if (!brokerRes.ok) throw new Error(brokerData.error);
-
-      onCreated(vaultId, brokerData.loanBrokerId, brokerData.result?.hash);
+      onCreated(vaultId, loanBrokerId, txHash);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Failed to create vault");
     } finally {
@@ -393,7 +349,7 @@ export function CreateVault({
                   id="mgmt-fee"
                   type="number"
                   min="0"
-                  max="100"
+                  max="10"
                   step="0.01"
                   placeholder="e.g. 1.0"
                   value={managementFee}

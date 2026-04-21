@@ -22,18 +22,18 @@ import { FeeBreakdown } from "@/components/fee-breakdown";
 import { Loader2, AlertTriangle, Info, ChevronDown } from "lucide-react";
 import {
   DROPS_PER_XRP,
-  DEFAULT_INTEREST_RATE,
+  DEFAULT_INTEREST_RATE_BPS,
   DEFAULT_PAYMENT_TOTAL,
   DEFAULT_PAYMENT_INTERVAL,
   DEFAULT_GRACE_PERIOD,
-  DEFAULT_ORIGINATION_FEE,
-  DEFAULT_SERVICE_FEE,
+  DEFAULT_ORIGINATION_FEE_DROPS,
+  DEFAULT_SERVICE_FEE_DROPS,
 } from "@/lib/constants";
+import { issueLoan } from "./actions";
 
 import type { IssuedToken } from "@/types/session";
 
 interface IssueLoanProps {
-  sessionId: string;
   vaultAssetTotal?: string;
   vaultAssetsMaximum?: string;
   brokerDebtMaximum?: string;
@@ -58,7 +58,6 @@ function InfoTip({ text }: { text: string }) {
 }
 
 export function IssueLoan({
-  sessionId,
   vaultAssetTotal,
   vaultAssetsMaximum,
   brokerDebtMaximum,
@@ -75,15 +74,15 @@ export function IssueLoan({
 
   // Core terms
   const [principalXrp, setPrincipalXrp] = useState("20");
-  const [interestRate, setInterestRate] = useState(DEFAULT_INTEREST_RATE);
+  const [interestRate, setInterestRate] = useState(DEFAULT_INTEREST_RATE_BPS);
   const [paymentTotal, setPaymentTotal] = useState(DEFAULT_PAYMENT_TOTAL);
   const [paymentInterval, setPaymentInterval] = useState(DEFAULT_PAYMENT_INTERVAL);
   const [gracePeriod, setGracePeriod] = useState(DEFAULT_GRACE_PERIOD);
   const [originationFee, setOriginationFee] = useState(
-    (parseInt(DEFAULT_ORIGINATION_FEE) / DROPS_PER_XRP).toString()
+    (parseInt(DEFAULT_ORIGINATION_FEE_DROPS) / DROPS_PER_XRP).toString()
   );
   const [serviceFee, setServiceFee] = useState(
-    (parseInt(DEFAULT_SERVICE_FEE) / DROPS_PER_XRP).toString()
+    (parseInt(DEFAULT_SERVICE_FEE_DROPS) / DROPS_PER_XRP).toString()
   );
 
   // Advanced - fees
@@ -98,6 +97,10 @@ export function IssueLoan({
 
   // Metadata
   const [loanName, setLoanName] = useState("");
+
+  // Overpayment enablement — sets tfLoanOverpayment on LoanSet so the borrower
+  // can later submit LoanPay with tfLoanOverpayment.
+  const [allowOverpayment, setAllowOverpayment] = useState(false);
 
   const principalDrops = isToken
     ? String(parseFloat(principalXrp || "0"))
@@ -115,52 +118,25 @@ export function IssueLoan({
     onPending("Issuing loan (multi-sign: broker + borrower)...");
 
     try {
-      const body: Record<string, unknown> = {
-        sessionId,
-        principalRequested: principalDrops,
+      const { txHash } = await issueLoan({
+        isToken,
+        principal: principalXrp,
         interestRate,
         paymentTotal,
         paymentInterval,
         gracePeriod,
-        originationFee: originationFeeDrops,
-        serviceFee: serviceFeeDrops,
-      };
-
-      // Advanced fees — only send if > 0
-      if (latePaymentFee && parseFloat(latePaymentFee) > 0) {
-        body.latePaymentFee = isToken
-          ? String(parseFloat(latePaymentFee))
-          : String(Math.round(parseFloat(latePaymentFee) * DROPS_PER_XRP));
-      }
-      if (closePaymentFee && parseFloat(closePaymentFee) > 0) {
-        body.closePaymentFee = isToken
-          ? String(parseFloat(closePaymentFee))
-          : String(Math.round(parseFloat(closePaymentFee) * DROPS_PER_XRP));
-      }
-      // Rates in 1/10th basis points (% * 1000) — only send if > 0
-      if (overpaymentFee && parseFloat(overpaymentFee) > 0) {
-        body.overpaymentFee = Math.round(parseFloat(overpaymentFee) * 1000);
-      }
-      if (lateInterestRate && parseFloat(lateInterestRate) > 0) {
-        body.lateInterestRate = Math.round(parseFloat(lateInterestRate) * 1000);
-      }
-      if (closeInterestRate && parseFloat(closeInterestRate) > 0) {
-        body.closeInterestRate = Math.round(parseFloat(closeInterestRate) * 1000);
-      }
-      if (overpaymentInterestRate && parseFloat(overpaymentInterestRate) > 0) {
-        body.overpaymentInterestRate = Math.round(parseFloat(overpaymentInterestRate) * 1000);
-      }
-
-      if (loanName.trim()) body.loanName = loanName.trim();
-
-      const res = await fetch("/api/loan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        originationFee,
+        serviceFee,
+        latePaymentFee,
+        closePaymentFee,
+        overpaymentFee,
+        lateInterestRate,
+        closeInterestRate,
+        overpaymentInterestRate,
+        loanName,
+        allowOverpayment,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      onCreated(data.result?.hash);
+      onCreated(txHash);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Failed to issue loan");
     } finally {
@@ -487,12 +463,27 @@ export function IssueLoan({
             </div>
           )}
 
+          <div className="flex items-center gap-2">
+            <input
+              id="allow-overpayment"
+              type="checkbox"
+              checked={allowOverpayment}
+              onChange={(e) => setAllowOverpayment(e.target.checked)}
+              className="h-4 w-4 rounded border-input"
+            />
+            <Label htmlFor="allow-overpayment" className="text-sm font-normal cursor-pointer flex items-center gap-1.5">
+              Allow overpayment
+              <InfoTip text="Sets tfLoanOverpayment on LoanSet. Required for the borrower to pay extra principal in a single LoanPay with tfLoanOverpayment — otherwise extra funds just fund sequential installments." />
+            </Label>
+          </div>
+
           <Separator />
 
           <FeeBreakdown
             principalRequested={principalDrops}
             interestRate={interestRate}
             paymentTotal={paymentTotal}
+            paymentInterval={paymentInterval}
             originationFee={originationFeeDrops}
             serviceFee={serviceFeeDrops}
             token={isToken ? "TUSD" : undefined}

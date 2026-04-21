@@ -1,4 +1,10 @@
-// Validate a string amount in drops is a valid positive integer
+/**
+ * Small value-validators used across API routes. All return `null` when the
+ * input is invalid so callers can compose them into early-return guards
+ * without try/catch.
+ */
+
+/** Positive-integer drops amount (XRP). Rejects decimals and negatives. */
 export function validateDrops(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const num = Number(value);
@@ -6,7 +12,7 @@ export function validateDrops(value: unknown): string | null {
   return value;
 }
 
-// Validate a string amount (positive number, integer or decimal — for IOU/MPT)
+/** Positive numeric amount (IOU decimal or pre-scaled MPT integer). */
 export function validateAmount(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const num = Number(value);
@@ -14,7 +20,7 @@ export function validateAmount(value: unknown): string | null {
   return value;
 }
 
-// Validate a numeric parameter is within range
+/** Coerce + range-check a numeric input. */
 export function validateNumber(
   value: unknown,
   min: number,
@@ -25,33 +31,7 @@ export function validateNumber(
   return num;
 }
 
-// Validate an XRPL classic address (r...)
-const XRPL_ADDRESS_REGEX = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/;
-export function validateXrplAddress(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  if (!XRPL_ADDRESS_REGEX.test(value.trim())) return null;
-  return value.trim();
-}
-
-// Validate a 3-character currency code or 40-hex for non-standard
-const CURRENCY_REGEX = /^[A-Z]{3}$|^[0-9A-F]{40}$/;
-export function validateCurrencyCode(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const v = value.trim().toUpperCase();
-  if (!CURRENCY_REGEX.test(v)) return null;
-  return v;
-}
-
-// Validate MPT issuance ID (48-char hex)
-const MPT_ID_REGEX = /^[0-9A-Fa-f]{48}$/;
-export function validateMptIssuanceId(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const v = value.trim();
-  if (!MPT_ID_REGEX.test(v)) return null;
-  return v;
-}
-
-// Validate a MongoDB ObjectId string
+/** MongoDB ObjectId (24 hex chars). */
 const OBJECT_ID_REGEX = /^[0-9a-fA-F]{24}$/;
 export function validateObjectId(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -59,7 +39,15 @@ export function validateObjectId(value: unknown): string | null {
   return value.trim();
 }
 
-// Sanitize a plain text string (trim, limit length, strip control chars)
+/**
+ * Pick the right numeric validator based on asset type. IOU/MPT accept
+ * decimal strings; XRP is always integer drops.
+ */
+export function validateAssetAmount(value: unknown, isToken: boolean): string | null {
+  return isToken ? validateAmount(value) : validateDrops(value);
+}
+
+/** Trim, cap length, strip control characters. For user-supplied metadata. */
 export function sanitizeString(value: unknown, maxLength: number): string {
   if (typeof value !== "string") return "";
   return value

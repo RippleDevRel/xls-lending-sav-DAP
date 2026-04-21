@@ -1,12 +1,28 @@
-import { Wallet } from "xrpl";
+/**
+ * Demo issuer setup: bootstraps IOU or MPT trust so that the vault flow can
+ * use a non-XRP asset. Not part of XLS-65/66 themselves — this is app-level
+ * plumbing for the demo, built on XLS-33 (MPT) and classic IOU mechanics.
+ */
+import { Wallet, MPTokenIssuanceCreateFlags } from "xrpl";
 import { getXrplClient } from "./client";
 import { submitTransaction } from "./vault";
-
-const TUSD_DISTRIBUTION_AMOUNT = "10000"; // 10,000 TUSD to depositor
+import {
+  DEMO_TOKEN_DISTRIBUTION,
+  DEMO_TOKEN_TICKER,
+  DEMO_TOKEN_NAME,
+  DEMO_TOKEN_DESCRIPTION,
+  DEMO_IOU_TRUST_LIMIT,
+  DEMO_MPT_MAXIMUM_AMOUNT,
+  MPT_ASSET_SCALE,
+  MPT_SCALE_MULTIPLIER,
+} from "@/lib/constants";
 
 /**
- * Setup IOU token: create trustlines for all 3 wallets, send TUSD to depositor.
- * Returns { currency, issuer } for use in VaultCreate.
+ * Enable DefaultRipple on the issuer, create trustlines for broker/depositor/
+ * borrower, and seed each role with `DEMO_TOKEN_DISTRIBUTION` units so the
+ * demo flows (deposit, first-loss cover, interest/fee repayment) all have
+ * enough balance to run end-to-end.
+ * Returns `{ currency, issuer }` for use in a subsequent VaultCreate.
  */
 export async function setupIOU(
   issuerWallet: Wallet,
@@ -16,16 +32,16 @@ export async function setupIOU(
 ): Promise<{ currency: string; issuer: string }> {
   const currency = "USD";
   const issuerAddress = issuerWallet.classicAddress;
-  const limit = "1000000"; // 1M trust limit
+  const limit = DEMO_IOU_TRUST_LIMIT;
 
-  // Step 0: Enable DefaultRipple on issuer (required for IOU vaults)
+  // DefaultRipple lets intermediate accounts rebalance through the issuer —
+  // required for vaults holding IOU assets.
   await submitTransaction(issuerWallet, {
     TransactionType: "AccountSet",
     Account: issuerAddress,
     SetFlag: 8, // asfDefaultRipple
   });
 
-  // Step 1: TrustSet for all 3 wallets (parallel)
   await Promise.all([
     submitTransaction(brokerWallet, {
       TransactionType: "TrustSet",
@@ -44,20 +60,24 @@ export async function setupIOU(
     }),
   ]);
 
-  // Step 2: Send TUSD to depositor
-  await submitTransaction(issuerWallet, {
-    TransactionType: "Payment",
-    Account: issuerAddress,
-    Destination: depositorWallet.classicAddress,
-    Amount: { currency, issuer: issuerAddress, value: TUSD_DISTRIBUTION_AMOUNT },
-  });
+  // Seed all three roles. The borrower needs a non-zero stake to cover
+  // interest + fees on repayment; the broker needs it to post first-loss cover.
+  for (const recipient of [depositorWallet, borrowerWallet, brokerWallet]) {
+    await submitTransaction(issuerWallet, {
+      TransactionType: "Payment",
+      Account: issuerAddress,
+      Destination: recipient.classicAddress,
+      Amount: { currency, issuer: issuerAddress, value: DEMO_TOKEN_DISTRIBUTION },
+    });
+  }
 
   return { currency, issuer: issuerAddress };
 }
 
 /**
- * Setup MPT token: create issuance, authorize all 3 wallets, send TUSD to depositor.
- * Returns { mptIssuanceId } for use in VaultCreate.
+ * Create an MPT issuance, authorize the three role wallets, and seed each
+ * role with the demo distribution (scaled by `MPT_ASSET_SCALE`) so all flows
+ * — deposit, first-loss cover, repayment — can run end-to-end.
  */
 export async function setupMPT(
   issuerWallet: Wallet,
@@ -67,36 +87,34 @@ export async function setupMPT(
 ): Promise<{ mptIssuanceId: string }> {
   const issuerAddress = issuerWallet.classicAddress;
 
-  // Step 1: Create MPT issuance
-  const metadata = { t: "TUSD", n: "Test USD", d: "Test stablecoin for demo", ac: "stablecoin" };
+  // XLS-89 compressed metadata keys: t=ticker, n=name, d=desc, ac=asset-class.
+  const metadata = {
+    t: DEMO_TOKEN_TICKER,
+    n: DEMO_TOKEN_NAME,
+    d: DEMO_TOKEN_DESCRIPTION,
+    ac: "stablecoin",
+  };
   const metadataHex = Buffer.from(JSON.stringify(metadata)).toString("hex").toUpperCase();
 
   const createResult = await submitTransaction(issuerWallet, {
     TransactionType: "MPTokenIssuanceCreate",
     Account: issuerAddress,
-    AssetScale: 2,
-    MaximumAmount: "100000000000", // 1 billion units (with scale 2 = 10B tokens)
-    Flags: 32, // tfMPTCanTransfer
+    AssetScale: MPT_ASSET_SCALE,
+    MaximumAmount: DEMO_MPT_MAXIMUM_AMOUNT,
+    Flags: MPTokenIssuanceCreateFlags.tfMPTCanTransfer,
     MPTokenMetadata: metadataHex,
   });
 
-  // Extract MPT issuance ID from metadata
-  const meta = createResult.result.meta as unknown as Record<string, unknown>;
-  const affectedNodes = (meta?.AffectedNodes as Array<Record<string, unknown>>) || [];
-  let mptIssuanceId = "";
-  for (const node of affectedNodes) {
-    const created = node.CreatedNode as Record<string, unknown> | undefined;
-    if (created?.LedgerEntryType === "MPTokenIssuance") {
-      mptIssuanceId = created.LedgerIndex as string;
-      break;
-    }
-  }
-
+  // rippled emits `mpt_issuance_id` (UINT192, 48 hex chars) directly in the
+  // transaction metadata — distinct from the MPTokenIssuance ledger entry's
+  // LedgerIndex (Hash256, 64 chars). Subsequent MPTokenAuthorize / Payment
+  // txs expect this UINT192 form.
+  const meta = createResult.result.meta as unknown as { mpt_issuance_id?: string } | undefined;
+  const mptIssuanceId = meta?.mpt_issuance_id;
   if (!mptIssuanceId) {
-    throw new Error("MPTokenIssuanceCreate succeeded but issuance ID not found in metadata");
+    throw new Error("MPTokenIssuanceCreate succeeded but mpt_issuance_id missing from metadata");
   }
 
-  // Step 2: MPTokenAuthorize for all 3 wallets (parallel)
   await Promise.all([
     submitTransaction(brokerWallet, {
       TransactionType: "MPTokenAuthorize",
@@ -115,18 +133,22 @@ export async function setupMPT(
     }),
   ]);
 
-  // Step 3: Send TUSD to depositor (10,000 TUSD = 1,000,000 with AssetScale 2)
+  const distributionMptValue = String(
+    Math.round(parseFloat(DEMO_TOKEN_DISTRIBUTION) * MPT_SCALE_MULTIPLIER)
+  );
   const client = await getXrplClient();
-  const paymentTx = {
-    TransactionType: "Payment",
-    Account: issuerAddress,
-    Destination: depositorWallet.classicAddress,
-    Amount: { mpt_issuance_id: mptIssuanceId, value: "1000000" },
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const prepared = await client.autofill(paymentTx as any);
-  const signed = issuerWallet.sign(prepared);
-  await client.submitAndWait(signed.tx_blob);
+  for (const recipient of [depositorWallet, borrowerWallet, brokerWallet]) {
+    const paymentTx = {
+      TransactionType: "Payment",
+      Account: issuerAddress,
+      Destination: recipient.classicAddress,
+      Amount: { mpt_issuance_id: mptIssuanceId, value: distributionMptValue },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prepared = await client.autofill(paymentTx as any);
+    const signed = issuerWallet.sign(prepared);
+    await client.submitAndWait(signed.tx_blob);
+  }
 
   return { mptIssuanceId };
 }

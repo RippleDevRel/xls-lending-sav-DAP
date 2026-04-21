@@ -1,28 +1,53 @@
+/**
+ * XLS-66 Loan transaction builders.
+ * Spec: https://github.com/XRPLF/XRPL-Standards/tree/master/XLS-0066-lending-protocol
+ *
+ * Unit conventions on the ledger:
+ *   - Currency amounts (principal, fees): drops for XRP, asset units for IOU/MPT.
+ *   - Rate fields (InterestRate and variants, OverpaymentFee): 1/10 bps.
+ */
 import * as xrpl from "xrpl";
-import { type Wallet } from "xrpl";
+import { type Wallet, LoanManageFlags, LoanPayFlags, LoanSetFlags } from "xrpl";
 import { getXrplClient } from "./client";
+import { assertTxSuccess } from "./helpers";
+import { bpsToTenthBps } from "@/lib/constants";
 
 export interface LoanSetParams {
   brokerAddress: string;
   borrowerAddress: string;
   loanBrokerId: string;
+  /** Principal in drops (XRP) or asset units (IOU/MPT). */
   principalRequested: string;
+  /** Annualized rate in basis points. Converted to 1/10 bps on-chain. */
   interestRate: number;
   paymentTotal: number;
+  /** Seconds between installments (min 60). */
   paymentInterval: number;
+  /** Seconds before a missed payment can be defaulted (>= 1, < PaymentInterval). */
   gracePeriod: number;
   originationFee: string;
   serviceFee: string;
-  // Optional advanced fields
   latePaymentFee?: string;
   closePaymentFee?: string;
-  overpaymentFee?: number; // 1/10th basis points (0-100000)
-  lateInterestRate?: number; // 1/10th basis points
-  closeInterestRate?: number; // 1/10th basis points
-  overpaymentInterestRate?: number; // 1/10th basis points
-  data?: string; // hex-encoded metadata
+  /** 1/10 bps. Passed through raw (already in ledger units). */
+  overpaymentFee?: number;
+  lateInterestRate?: number;
+  closeInterestRate?: number;
+  overpaymentInterestRate?: number;
+  /** Hex-encoded metadata BLOB (<= 256 bytes). */
+  data?: string;
+  /**
+   * Enable overpayment on the loan (sets tfLoanOverpayment → lsfLoanOverpayment).
+   * Required for the borrower to later submit LoanPay with tfLoanOverpayment.
+   */
+  allowOverpayment?: boolean;
 }
 
+/**
+ * LoanSet — origination transaction. Requires two signatures: broker (Account)
+ * and borrower (Counterparty). Use `signAndSubmitLoanSet` to handle the dual
+ * signing flow.
+ */
 export function buildLoanSet(params: LoanSetParams) {
   const tx: Record<string, unknown> = {
     TransactionType: "LoanSet",
@@ -30,7 +55,7 @@ export function buildLoanSet(params: LoanSetParams) {
     Counterparty: params.borrowerAddress,
     LoanBrokerID: params.loanBrokerId,
     PrincipalRequested: params.principalRequested,
-    InterestRate: params.interestRate * 10, // Convert basis points to 1/10th basis points
+    InterestRate: bpsToTenthBps(params.interestRate),
     PaymentTotal: params.paymentTotal,
     PaymentInterval: params.paymentInterval,
     GracePeriod: params.gracePeriod,
@@ -46,10 +71,18 @@ export function buildLoanSet(params: LoanSetParams) {
   if (params.closeInterestRate !== undefined) tx.CloseInterestRate = params.closeInterestRate;
   if (params.overpaymentInterestRate !== undefined) tx.OverpaymentInterestRate = params.overpaymentInterestRate;
   if (params.data) tx.Data = params.data;
+  if (params.allowOverpayment) tx.Flags = LoanSetFlags.tfLoanOverpayment;
 
   return tx;
 }
 
+export { LoanSetFlags };
+
+/**
+ * Submit a LoanSet with broker + borrower signatures. The broker signs first
+ * (producing a tx_blob) and the borrower counter-signs via the xrpl.js helper
+ * `signLoanSetByCounterparty`.
+ */
 export async function signAndSubmitLoanSet(
   brokerWallet: Wallet,
   borrowerWallet: Wallet,
@@ -59,50 +92,48 @@ export async function signAndSubmitLoanSet(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const prepared = await client.autofill(loanSetTx as any);
 
-  // Step 1: Broker signs
   const brokerSigned = brokerWallet.sign(prepared);
-
-  // Step 2: Borrower counter-signs
   const fullySigned = (
     xrpl as unknown as {
-      signLoanSetByCounterparty: (
-        wallet: Wallet,
-        blob: string
-      ) => { tx_blob: string };
+      signLoanSetByCounterparty: (wallet: Wallet, blob: string) => { tx_blob: string };
     }
   ).signLoanSetByCounterparty(borrowerWallet, brokerSigned.tx_blob);
 
-  // Step 3: Submit
   const result = await client.submitAndWait(fullySigned.tx_blob);
-
-  // Verify the transaction actually succeeded on-chain
-  const meta = result.result.meta as unknown as Record<string, unknown>;
-  const engineResult =
-    (meta?.TransactionResult as string) ||
-    ((result.result as unknown as Record<string, unknown>).engine_result as string) ||
-    "";
-
-  if (engineResult && engineResult !== "tesSUCCESS") {
-    const hash = (result.result as unknown as Record<string, unknown>).hash || "";
-    throw new Error(`LoanSet failed: ${engineResult} (tx: ${hash})`);
-  }
-
+  assertTxSuccess(result, "LoanSet");
   return result;
 }
 
+/**
+ * LoanPay — installment, early full repayment, or overpayment. The ledger
+ * caps the charged amount at what is actually owed.
+ *
+ * Flags are mutually exclusive:
+ *   - `tfLoanFullPayment` (XLS-66 §A-3.2.4) triggers early-close charges
+ *     (ClosePaymentFee + CloseInterestRate penalty). Without it, a large
+ *     payment is applied as sequential regular payments instead.
+ *   - `tfLoanLatePayment` must be set when paying after the due date.
+ *   - `tfLoanOverpayment` applies overpayment interest/fee and re-amortizes.
+ */
 export function buildLoanPay(
   borrowerAddress: string,
   loanId: string,
-  amount: string | Record<string, string>
+  amount: string | Record<string, string>,
+  flags?: number
 ) {
-  return {
+  const tx: Record<string, unknown> = {
     TransactionType: "LoanPay",
     Account: borrowerAddress,
     LoanID: loanId,
     Amount: amount,
   };
+  if (flags) tx.Flags = flags;
+  return tx;
 }
 
+export { LoanPayFlags };
+
+/** LoanDelete — only succeeds on fully repaid or defaulted loans. */
 export function buildLoanDelete(accountAddress: string, loanId: string) {
   return {
     TransactionType: "LoanDelete",
@@ -111,13 +142,12 @@ export function buildLoanDelete(accountAddress: string, loanId: string) {
   };
 }
 
-// LoanManage flags
-export const LOAN_MANAGE_FLAGS = {
-  tfLoanDefault: 65536,
-  tfLoanImpair: 131072,
-  tfLoanUnimpair: 262144,
-} as const;
+export { LoanManageFlags };
 
+/**
+ * LoanManage — broker-only admin action. Flags are mutually exclusive:
+ * `tfLoanDefault` (after grace), `tfLoanImpair`, `tfLoanUnimpair`.
+ */
 export function buildLoanManage(
   brokerAddress: string,
   loanId: string,
@@ -131,6 +161,7 @@ export function buildLoanManage(
   };
 }
 
+/** Read a Loan ledger entry by its index. */
 export async function getLoanInfo(loanId: string) {
   const client = await getXrplClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

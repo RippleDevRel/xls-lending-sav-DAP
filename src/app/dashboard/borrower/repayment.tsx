@@ -13,13 +13,14 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { AmountDisplay } from "@/components/amount-display";
 import { LoanStatusBadge } from "@/components/loan-status-badge";
-import { Loader2, ExternalLink, Calendar, Clock, CheckCircle, Trash2 } from "lucide-react";
+import { Loader2, ExternalLink, Calendar, Clock, CheckCircle, Trash2, AlertTriangle, XCircle } from "lucide-react";
 import { explorerObjectUrl } from "@/lib/explorer";
-import { DROPS_PER_XRP } from "@/lib/constants";
+import { DROPS_PER_XRP, RIPPLE_EPOCH_OFFSET } from "@/lib/constants";
+import { earlyFullPayment, latePayment } from "@/lib/loan-math";
+import { LoanSetFlags } from "xrpl";
 import type { LoanState } from "@/types/loan";
 
 interface RepaymentFormProps {
-  sessionId: string;
   loan: LoanState;
   token?: string;
   onSuccess: (message: string, txHash?: string) => void;
@@ -27,7 +28,11 @@ interface RepaymentFormProps {
   onPending: (message: string) => void;
 }
 
-type PaymentMode = "installment" | "full" | "custom";
+type PaymentMode = "installment" | "full" | "custom" | "overpayment";
+
+// The Loan ledger entry sets lsfLoanOverpayment with the same bit value as
+// the LoanSet tx flag tfLoanOverpayment (XLS-66 §Loan Flags).
+const LSF_LOAN_OVERPAYMENT = LoanSetFlags.tfLoanOverpayment;
 
 interface OnChainLoan {
   TotalValueOutstanding?: string;
@@ -39,14 +44,21 @@ interface OnChainLoan {
   PrincipalOutstanding?: string;
   PrincipalRequested?: string;
   InterestRate?: number;
+  CloseInterestRate?: number;
+  ClosePaymentFee?: string;
+  LateInterestRate?: number;
+  LatePaymentFee?: string;
+  OverpaymentInterestRate?: number;
+  OverpaymentFee?: number;
+  StartDate?: number;
   LoanServiceFee?: string;
   LoanOriginationFee?: string;
   GracePeriod?: number;
   PaymentInterval?: number;
+  Flags?: number;
 }
 
 export function RepaymentForm({
-  sessionId,
   loan,
   token,
   onSuccess,
@@ -91,40 +103,127 @@ export function RepaymentForm({
     paymentsRemaining === 0 ||
     (Number(totalOutstanding) === 0 && paid > 0);
 
+  // Lateness detection against on-ledger timestamps.
+  const nowRipple = Math.floor(Date.now() / 1000) - RIPPLE_EPOCH_OFFSET;
+  const nextDue = onChain?.NextPaymentDueDate ?? 0;
+  const gracePeriod = onChain?.GracePeriod ?? 0;
+  const secondsOverdue = nextDue > 0 ? Math.max(0, nowRipple - nextDue) : 0;
+  const isLate = secondsOverdue > 0;
+  const isGraceExpired = isLate && gracePeriod > 0 && secondsOverdue > gracePeriod;
+  const supportsOverpayment =
+    !!onChain?.Flags && (onChain.Flags & LSF_LOAN_OVERPAYMENT) !== 0;
+
   // For XRP (drops), round up to nearest integer. For tokens, round to 6 decimals max (XRPL IOU limit).
   const ceil = isToken ? (n: number) => n : Math.ceil;
   const roundAmt = isToken
     ? (n: number) => parseFloat(n.toFixed(6))
     : (n: number) => Math.ceil(n);
 
-  // Add a small buffer to avoid tecINSUFFICIENT_PAYMENT from interest accruing
-  // between fetch and submission. The ledger caps overpayments automatically.
+  // Small buffer applied only to the submitted amount (not the displayed one)
+  // to absorb interest drift between fetch and submission (ledger close time
+  // vs client). Must stay tiny: for tfLoanFullPayment the ledger debits the
+  // full Amount (§A-3.3 Step 2 does not cap), so any buffer is actually paid.
+  //   XRP   → +1000 drops (= 0.001 XRP)
+  //   Token → +0.01 units  (= 1 integer unit at MPT AssetScale 2)
   function addBuffer(n: number): number {
-    return isToken ? n * 1.02 : n + 1000; // +2% for tokens, +1000 drops for XRP
+    return isToken ? n + 0.01 : n + 1000;
   }
 
-  function getPaymentAmount(): string {
-    if (mode === "full") {
-      const outstanding = Number(totalOutstanding || "0");
-      const svcFee = Number(serviceFee);
-      const totalServiceFees = svcFee * paymentsRemaining;
-      return String(roundAmt(addBuffer(outstanding + totalServiceFees)));
-    }
-    if (mode === "installment") {
-      const periodicPayment = ceil(
-        Number(onChain?.PeriodicPayment || "0")
-      );
-      const svcFee = Number(serviceFee);
+  /** Current time in Ripple epoch seconds, used against on-ledger timestamps. */
+  function nowRippleSeconds(): number {
+    return Math.floor(Date.now() / 1000) - RIPPLE_EPOCH_OFFSET;
+  }
 
-      if (periodicPayment > 0) {
-        return String(roundAmt(addBuffer(periodicPayment + svcFee)));
-      }
-      const outstanding = Number(totalOutstanding || "0");
+  /** XLS-66 §A-3.2.2 late payment breakdown. No buffer. */
+  function computeLate(): {
+    periodicPayment: number;
+    serviceFee: number;
+    lateFee: number;
+    lateInterest: number;
+    total: number;
+  } {
+    const principal = Number(onChain?.PrincipalOutstanding || totalOutstanding || "0");
+    const periodicPayment = ceil(Number(onChain?.PeriodicPayment || "0"));
+    const svcFee = Number(serviceFee);
+    const lateFee = Number(onChain?.LatePaymentFee || "0");
+    const { lateInterest, totalDue } = latePayment({
+      principalOutstanding: principal,
+      periodicPayment,
+      serviceFee: svcFee,
+      latePaymentFee: lateFee,
+      lateInterestRateTenthBps: onChain?.LateInterestRate ?? 0,
+      secondsOverdue,
+    });
+    return {
+      periodicPayment,
+      serviceFee: svcFee,
+      lateFee,
+      lateInterest,
+      total: totalDue,
+    };
+  }
+
+  /** XLS-66 §A-3.2.4 early full repayment breakdown. No buffer. */
+  function computeEarlyFull(): {
+    principal: number;
+    accruedInterest: number;
+    prepaymentPenalty: number;
+    closePaymentFee: number;
+    total: number;
+  } {
+    const principal = Number(onChain?.PrincipalOutstanding || totalOutstanding || "0");
+    const lastTs = Math.max(
+      onChain?.PreviousPaymentDueDate ?? 0,
+      onChain?.StartDate ?? 0
+    );
+    const { accruedInterest, prepaymentPenalty } = earlyFullPayment({
+      principalOutstanding: principal,
+      interestRateTenthBps: onChain?.InterestRate ?? 0,
+      closeInterestRateTenthBps: onChain?.CloseInterestRate ?? 0,
+      closePaymentFee: 0, // added separately below (onChain field is the raw value)
+      paymentInterval: onChain?.PaymentInterval ?? 0,
+      secondsSinceLastPayment: Math.max(0, nowRippleSeconds() - lastTs),
+    });
+    const closePaymentFee = Number(onChain?.ClosePaymentFee || "0");
+    const total = principal + accruedInterest + prepaymentPenalty + closePaymentFee;
+    return { principal, accruedInterest, prepaymentPenalty, closePaymentFee, total };
+  }
+
+  /** Clean math used in the UI breakdown — no buffer. */
+  function getDisplayTotal(): string {
+    if (mode === "full") return String(roundAmt(computeEarlyFull().total));
+    if (mode === "installment") {
+      if (isLate) return String(roundAmt(computeLate().total));
+      const periodicPayment = ceil(Number(onChain?.PeriodicPayment || "0"));
+      const svcFee = Number(serviceFee);
+      if (periodicPayment > 0) return String(roundAmt(periodicPayment + svcFee));
       const remaining = paymentsRemaining || 1;
-      return String(roundAmt(addBuffer(outstanding / remaining + svcFee)));
+      return String(roundAmt(Number(totalOutstanding || "0") / remaining + svcFee));
+    }
+    if (mode === "overpayment") {
+      // One installment + the extra entered by the user. The ledger splits the
+      // extra into overpayment interest / fee / principal reduction.
+      const periodicPayment = ceil(Number(onChain?.PeriodicPayment || "0"));
+      const svcFee = Number(serviceFee);
+      const extra = isToken
+        ? parseFloat(customAmount || "0")
+        : Math.round(parseFloat(customAmount || "0") * DROPS_PER_XRP);
+      return String(roundAmt(periodicPayment + svcFee + extra));
     }
     if (isToken) return String(parseFloat(customAmount || "0"));
     return String(Math.round(parseFloat(customAmount || "0") * DROPS_PER_XRP));
+  }
+
+  /**
+   * Amount to submit. For full/late modes the server re-computes with
+   * validated ledger close time — we send nothing and trust the server.
+   * For the other modes the ledger caps at the actually-due value, so a
+   * small client-side buffer is safe.
+   */
+  function getPaymentAmount(): string {
+    const clean = Number(getDisplayTotal());
+    if (mode === "custom") return String(clean);
+    return String(roundAmt(addBuffer(clean)));
   }
 
   function formatVal(drops: string): string {
@@ -132,8 +231,7 @@ export function RepaymentForm({
   }
 
   function formatDate(rippleTimestamp: number): string {
-    // Ripple epoch is 2000-01-01 00:00:00 UTC
-    const unixMs = (rippleTimestamp + 946684800) * 1000;
+    const unixMs = (rippleTimestamp + RIPPLE_EPOCH_OFFSET) * 1000;
     return new Date(unixMs).toLocaleDateString(undefined, {
       year: "numeric",
       month: "short",
@@ -153,41 +251,45 @@ export function RepaymentForm({
     onPending(`Making payment of ${amountDisplay} ${unit}...`);
 
     try {
-      // Re-fetch fresh on-chain state before paying in full
-      let finalAmountDrops = amountDrops;
-      if (mode === "full") {
-        try {
-          const freshRes = await fetch(`/api/loan/${loan.loanId}`);
-          if (freshRes.ok) {
-            const freshData = await freshRes.json();
-            const node = freshData.onLedger?.node;
-            if (node) {
-              const freshOutstanding = Number(node.TotalValueOutstanding || "0");
-              const freshRemaining = node.PaymentRemaining ?? 0;
-              const svcFee = Number(serviceFee);
-              finalAmountDrops = String(roundAmt(addBuffer(freshOutstanding + svcFee * freshRemaining)));
-            }
-          }
-        } catch { /* use original calculation */ }
-      }
-
+      const finalAmountDrops = amountDrops;
       const finalDisplay = formatVal(finalAmountDrops);
       onPending(`Making payment of ${finalDisplay} ${unit}...`);
+
+      // Map UI mode to the LoanPay flag the ledger requires.
+      //   late → tfLoanLatePayment (auto-detected from isLate, even in "installment" mode)
+      //   full → tfLoanFullPayment  (server computes exact amount)
+      //   overpayment → tfLoanOverpayment
+      //   regular installment / custom → no flag
+      const serverMode =
+        isLate && (mode === "installment" || mode === "custom")
+          ? "late"
+          : mode === "full"
+          ? "full"
+          : mode === "overpayment"
+          ? "overpayment"
+          : undefined;
+
+      // For full/late, omit amountDrops — the server derives it from the
+      // validated ledger close time (precise to ~1 ledger close, ~0.001 unit).
+      const body: Record<string, unknown> = {
+        loanId: loan.loanId,
+        mode: serverMode,
+      };
+      if (serverMode !== "full" && serverMode !== "late") {
+        body.amountDrops = finalAmountDrops;
+      }
 
       const res = await fetch("/api/loan/repay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          loanId: loan.loanId,
-          amountDrops: finalAmountDrops,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       // Refresh on-chain state after payment
       await fetchLoanInfo();
-      onSuccess(`Payment of ${finalDisplay} ${unit} submitted`, data.result?.hash);
+      const debitedDisplay = data.amount ? formatVal(data.amount) : finalDisplay;
+      onSuccess(`Payment of ${debitedDisplay} ${unit} submitted`, data.result?.hash);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Payment failed");
     } finally {
@@ -245,7 +347,7 @@ export function RepaymentForm({
                 const res = await fetch("/api/loan/default", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ sessionId, loanId: loan.loanId, action: "close" }),
+                  body: JSON.stringify({ loanId: loan.loanId, action: "close" }),
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error);
@@ -349,27 +451,56 @@ export function RepaymentForm({
 
         <Separator />
 
+        {/* Lateness banners — grace-expired is terminal, late-in-grace is warning. */}
+        {isGraceExpired && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-destructive/50 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+            <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium">Grace period expired</p>
+              <p className="text-xs mt-0.5">
+                This loan can no longer be repaid. The broker may default it via LoanManage.
+              </p>
+            </div>
+          </div>
+        )}
+        {isLate && !isGraceExpired && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-sm">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-warning" />
+            <div>
+              <p className="font-medium text-warning-foreground">Payment overdue</p>
+              <p className="text-xs mt-0.5 text-muted-foreground">
+                Past due by {Math.ceil(secondsOverdue / 86400)} day(s). The ledger requires
+                tfLoanLatePayment with late fees on this installment.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Payment mode selection */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label className="text-sm">Payment type</Label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className={`grid gap-2 ${supportsOverpayment && !isLate ? "grid-cols-4" : "grid-cols-3"}`}>
               {(
                 [
-                  { key: "installment", label: "Next installment" },
-                  { key: "full", label: "Pay in full" },
-                  { key: "custom", label: "Custom" },
-                ] as const
+                  { key: "installment", label: isLate ? "Late installment" : "Next installment", disabled: false },
+                  { key: "full", label: "Pay in full", disabled: isLate },
+                  ...(supportsOverpayment
+                    ? [{ key: "overpayment" as PaymentMode, label: "Overpayment", disabled: isLate }]
+                    : []),
+                  { key: "custom", label: "Custom", disabled: false },
+                ] as { key: PaymentMode; label: string; disabled: boolean }[]
               ).map((opt) => (
                 <button
                   key={opt.key}
                   type="button"
-                  onClick={() => setMode(opt.key)}
+                  onClick={() => !opt.disabled && setMode(opt.key)}
+                  disabled={opt.disabled || isGraceExpired}
                   className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
                     mode === opt.key
                       ? "border-primary bg-primary/5 text-primary"
                       : "text-muted-foreground hover:bg-muted/50"
-                  }`}
+                  } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent`}
                 >
                   {opt.label}
                 </button>
@@ -377,37 +508,139 @@ export function RepaymentForm({
             </div>
           </div>
 
-          {/* Preview amount */}
-          {mode === "installment" && (
-            <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-sm">
-              <span className="text-muted-foreground">Amount: </span>
-              <AmountDisplay drops={getPaymentAmount()} className="font-semibold" token={token} />
-            </div>
-          )}
-
-          {mode === "full" && (() => {
-            const outstanding = ceil(
-              Number(onChain?.TotalValueOutstanding || loan.principalOutstanding || "0")
-            );
-            const remaining = onChain?.PaymentRemaining ?? loan.paymentsRemaining;
+          {mode === "installment" && !isLate && (() => {
+            const periodicPayment = ceil(Number(onChain?.PeriodicPayment || "0"));
             const svcFee = Number(serviceFee);
-            const totalSvcFees = svcFee * remaining;
             return (
               <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-sm space-y-1.5">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Outstanding (principal + interest)</span>
-                  <AmountDisplay drops={String(outstanding)} token={token} />
+                  <span className="text-muted-foreground">Periodic payment (principal + interest)</span>
+                  <AmountDisplay drops={String(periodicPayment)} token={token} />
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">
-                    Service fees ({remaining} × {formatVal(String(svcFee))} {unit})
-                  </span>
-                  <AmountDisplay drops={String(totalSvcFees)} token={token} />
+                  <span className="text-muted-foreground">Service fee (1 × {formatVal(String(svcFee))} {unit})</span>
+                  <AmountDisplay drops={String(svcFee)} token={token} />
                 </div>
                 <div className="flex justify-between border-t pt-1.5 font-semibold">
                   <span>Total</span>
-                  <AmountDisplay drops={getPaymentAmount()} token={token} />
+                  <AmountDisplay drops={getDisplayTotal()} token={token} />
                 </div>
+              </div>
+            );
+          })()}
+
+          {mode === "installment" && isLate && (() => {
+            const l = computeLate();
+            const hasLateFee = l.lateFee > 0;
+            return (
+              <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-sm space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Periodic payment (principal + interest)</span>
+                  <AmountDisplay drops={String(l.periodicPayment)} token={token} />
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Service fee</span>
+                  <AmountDisplay drops={String(l.serviceFee)} token={token} />
+                </div>
+                {hasLateFee && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Late payment fee</span>
+                    <AmountDisplay drops={String(ceil(l.lateFee))} token={token} />
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">
+                    Late interest ({((onChain?.LateInterestRate ?? 0) / 1000).toFixed(2)}% × {Math.ceil(secondsOverdue / 86400)}d)
+                  </span>
+                  <AmountDisplay drops={String(ceil(l.lateInterest))} token={token} />
+                </div>
+                <div className="flex justify-between border-t pt-1.5 font-semibold">
+                  <span>Total</span>
+                  <AmountDisplay drops={getDisplayTotal()} token={token} />
+                </div>
+              </div>
+            );
+          })()}
+
+          {mode === "overpayment" && (() => {
+            const periodicPayment = ceil(Number(onChain?.PeriodicPayment || "0"));
+            const svcFee = Number(serviceFee);
+            const overpaymentInterestPct = ((onChain?.OverpaymentInterestRate ?? 0) / 1000).toFixed(2);
+            const overpaymentFeePct = ((onChain?.OverpaymentFee ?? 0) / 1000).toFixed(2);
+            return (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="overpay-extra">Extra principal payment ({unit})</Label>
+                  <Input
+                    id="overpay-extra"
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={customAmount}
+                    onChange={(e) => setCustomAmount(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-sm space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Regular installment</span>
+                    <AmountDisplay drops={String(periodicPayment + svcFee)} token={token} />
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Extra (applied to principal)</span>
+                    <span className="font-mono">
+                      {customAmount || "0"} {unit}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t pt-1.5 font-semibold">
+                    <span>Total</span>
+                    <AmountDisplay drops={getDisplayTotal()} token={token} />
+                  </div>
+                  <p className="text-xs text-muted-foreground pt-1">
+                    The ledger will deduct overpayment interest ({overpaymentInterestPct}%) and fee ({overpaymentFeePct}%) from the extra, re-amortize the loan, then reduce the remaining principal.
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
+
+          {mode === "full" && (() => {
+            const f = computeEarlyFull();
+            const hasPenalty = f.prepaymentPenalty > 0;
+            const hasCloseFee = f.closePaymentFee > 0;
+            return (
+              <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-sm space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Principal outstanding</span>
+                  <AmountDisplay drops={String(ceil(f.principal))} token={token} />
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Accrued interest (pro rata)</span>
+                  <AmountDisplay drops={String(ceil(f.accruedInterest))} token={token} />
+                </div>
+                {hasPenalty && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">
+                      Prepayment penalty ({((onChain?.CloseInterestRate ?? 0) / 1000).toFixed(2)}%)
+                    </span>
+                    <AmountDisplay drops={String(ceil(f.prepaymentPenalty))} token={token} />
+                  </div>
+                )}
+                {hasCloseFee && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Close payment fee</span>
+                    <AmountDisplay drops={String(ceil(f.closePaymentFee))} token={token} />
+                  </div>
+                )}
+                <div className="flex justify-between border-t pt-1.5 font-semibold">
+                  <span>Total</span>
+                  <AmountDisplay drops={getDisplayTotal()} token={token} />
+                </div>
+                {paymentsRemaining <= 1 && (
+                  <p className="text-xs text-warning pt-1">
+                    Only one payment remains — use &quot;Next installment&quot; instead; the ledger rejects tfLoanFullPayment on the final payment.
+                  </p>
+                )}
               </div>
             );
           })()}
@@ -427,14 +660,16 @@ export function RepaymentForm({
             </div>
           )}
 
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button type="submit" className="w-full" disabled={loading || isGraceExpired}>
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Processing...
               </>
+            ) : isGraceExpired ? (
+              "Loan in default — cannot pay"
             ) : (
-              `Pay ${formatVal(getPaymentAmount())} ${unit}`
+              `Pay ${formatVal(getDisplayTotal())} ${unit}`
             )}
           </Button>
         </form>

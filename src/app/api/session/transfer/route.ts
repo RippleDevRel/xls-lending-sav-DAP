@@ -1,27 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
-import { validateObjectId, validateAmount } from "@/lib/validation";
+import { validateAmount } from "@/lib/validation";
+import { requireAuthSession } from "@/lib/auth";
 import { connectDB, SessionModel } from "@/lib/db";
-import { walletFromSeed } from "@/lib/xrpl/wallet";
 import { submitTransaction } from "@/lib/xrpl/vault";
+import { getRoleWallet, buildAmountField, hasIssuedToken } from "@/lib/xrpl/helpers";
 import { DROPS_PER_XRP } from "@/lib/constants";
+import type { WalletInfo } from "@/types/session";
 
 export async function POST(request: NextRequest) {
   try {
+    const sessionId = await requireAuthSession();
+    if (!sessionId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const body = await request.json();
-    const sessionId = validateObjectId(body.sessionId);
-    const from = body.from as string;
-    const to = body.to as string;
+    const from = body.from as WalletInfo["role"];
+    const to = body.to as WalletInfo["role"];
     const amount = validateAmount(body.amount);
     const asset = body.asset as "XRP" | "TUSD" | undefined;
 
-    if (!sessionId || !from || !to || !amount) {
+    if (!from || !to || !amount) {
       return NextResponse.json(
-        { error: "sessionId, from, to, and amount are required" },
+        { error: "from, to, and amount are required" },
         { status: 400 }
       );
     }
-
     if (from === to) {
       return NextResponse.json(
         { error: "Cannot transfer to the same wallet" },
@@ -32,51 +36,19 @@ export async function POST(request: NextRequest) {
     await connectDB();
     const session = await SessionModel.findById(sessionId);
     if (!session) {
-      return NextResponse.json(
-        { error: "Session not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const fromWallet = session.wallets.find(
-      (w: { role: string }) => w.role === from
-    );
-    const toWallet = session.wallets.find(
-      (w: { role: string }) => w.role === to
-    );
-
-    if (!fromWallet || !toWallet) {
-      return NextResponse.json(
-        { error: "Wallet not found" },
-        { status: 400 }
-      );
+    const toWallet = session.wallets.find((w: WalletInfo) => w.role === to);
+    if (!toWallet) {
+      return NextResponse.json({ error: "Destination wallet not found" }, { status: 400 });
     }
+    const senderWallet = getRoleWallet(session, from);
 
-    const senderWallet = walletFromSeed(fromWallet.seed);
-    const issuedToken = session.issuedToken;
-
-    // Build Payment transaction
-    let paymentAmount: string | Record<string, string>;
-
-    if (asset === "TUSD" && issuedToken) {
-      if (issuedToken.type === "IOU") {
-        paymentAmount = {
-          currency: issuedToken.currency,
-          issuer: issuedToken.issuer,
-          value: amount,
-        };
-      } else {
-        // MPT
-        const mptValue = String(Math.round(parseFloat(amount) * 100));
-        paymentAmount = {
-          mpt_issuance_id: issuedToken.mptIssuanceId,
-          value: mptValue,
-        };
-      }
-    } else {
-      // XRP — convert to drops
-      paymentAmount = String(Math.round(parseFloat(amount) * DROPS_PER_XRP));
-    }
+    const paymentAmount =
+      asset === "TUSD" && hasIssuedToken(session.issuedToken)
+        ? buildAmountField(session.issuedToken, amount)
+        : String(Math.round(parseFloat(amount) * DROPS_PER_XRP));
 
     const tx = {
       TransactionType: "Payment",
@@ -86,13 +58,9 @@ export async function POST(request: NextRequest) {
     };
 
     const result = await submitTransaction(senderWallet, tx);
-
     return NextResponse.json({ result: result.result });
   } catch (error) {
     console.error("Transfer error:", error);
-    return NextResponse.json(
-      { error: getErrorMessage(error) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }

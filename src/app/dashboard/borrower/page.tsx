@@ -24,16 +24,14 @@ export default function BorrowerPage() {
     txHash?: string;
   } | null>(null);
 
-  const sessionId = session?._id;
-
   const fetchLoans = useCallback(async () => {
-    if (!sessionId) return;
-    const res = await fetch(`/api/loan?sessionId=${sessionId}`);
+    if (!session) return;
+    const res = await fetch("/api/loan");
     if (res.ok) {
       const data = await res.json();
       setLoans(data.loans);
     }
-  }, [sessionId]);
+  }, [session]);
 
   useEffect(() => {
     fetchLoans();
@@ -129,7 +127,6 @@ export default function BorrowerPage() {
               transition={{ duration: 0.4, delay: i * 0.1 }}
             >
               <RepaymentForm
-                sessionId={session._id}
                 loan={loan}
                 token={session.issuedToken ? "TUSD" : undefined}
                 onSuccess={(msg, txHash) => {

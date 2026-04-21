@@ -39,18 +39,13 @@ export function useSessionProvider(): SessionContextValue {
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSession = useCallback(async (email: string) => {
-    // Check if auth cookie is still valid by hitting a protected route
-    const authCheck = await fetch("/api/session/balances?sessionId=check", {
-      method: "GET",
-    });
-    if (authCheck.status === 401) {
-      // Cookie expired — clear localStorage, user must re-login
+  const fetchSession = useCallback(async () => {
+    // /api/session/me is a lightweight cookie probe — no XRPL roundtrip.
+    const res = await fetch("/api/session/me");
+    if (res.status === 401) {
       localStorage.removeItem("xls66-email");
       return;
     }
-
-    const res = await fetch(`/api/session?email=${encodeURIComponent(email)}`);
     if (res.ok) {
       const data = await res.json();
       setSession(data.session);
@@ -58,12 +53,7 @@ export function useSessionProvider(): SessionContextValue {
   }, []);
 
   useEffect(() => {
-    const email = localStorage.getItem("xls66-email");
-    if (email) {
-      fetchSession(email).finally(() => setInitializing(false));
-    } else {
-      setInitializing(false);
-    }
+    fetchSession().finally(() => setInitializing(false));
   }, [fetchSession]);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -93,13 +83,10 @@ export function useSessionProvider(): SessionContextValue {
   }, []);
 
   const refreshSession = useCallback(async () => {
-    const email = localStorage.getItem("xls66-email");
-    if (email) {
-      const res = await fetch(`/api/session?email=${encodeURIComponent(email)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSession(data.session);
-      }
+    const res = await fetch("/api/session/me");
+    if (res.ok) {
+      const data = await res.json();
+      setSession(data.session);
     }
   }, []);
 

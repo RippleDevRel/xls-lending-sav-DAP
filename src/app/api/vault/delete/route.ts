@@ -1,56 +1,49 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
 import { connectDB, SessionModel, VaultModel, LoanModel } from "@/lib/db";
-import { walletFromSeed } from "@/lib/xrpl/wallet";
 import { buildVaultDelete, submitTransaction, getVaultInfo } from "@/lib/xrpl/vault";
 import { buildLoanBrokerDelete, buildLoanBrokerCoverWithdraw } from "@/lib/xrpl/broker";
-import { buildLoanDelete, buildLoanManage, LOAN_MANAGE_FLAGS } from "@/lib/xrpl/loan";
-import { validateObjectId } from "@/lib/validation";
+import {
+  buildLoanDelete,
+  buildLoanManage,
+  LoanManageFlags,
+  getLoanInfo,
+} from "@/lib/xrpl/loan";
+import { getRoleWallet, buildAmountField, hasIssuedToken } from "@/lib/xrpl/helpers";
+import { requireAuthSession } from "@/lib/auth";
 
-export async function POST(request: NextRequest) {
+/**
+ * Full teardown sequence required by XLS-66 / XLS-65:
+ * 1. Default active loans → LoanDelete each loan
+ * 2. LoanBrokerCoverWithdraw first-loss capital → LoanBrokerDelete
+ * 3. VaultDelete (requires AssetsTotal == 0 and OutstandingAmount == 0)
+ */
+export async function POST() {
   try {
-    const body = await request.json();
-    const sessionId = validateObjectId(body.sessionId);
-
+    const sessionId = await requireAuthSession();
     if (!sessionId) {
-      return NextResponse.json(
-        { error: "sessionId is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     await connectDB();
     const session = await SessionModel.findById(sessionId);
     if (!session || !session.vaultId) {
-      return NextResponse.json(
-        { error: "Session or vault not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Session or vault not found" }, { status: 404 });
     }
 
-    const brokerWalletData = session.wallets.find(
-      (w: { role: string }) => w.role === "broker"
-    );
-    const borrowerWalletData = session.wallets.find(
-      (w: { role: string }) => w.role === "borrower"
-    );
-    if (!brokerWalletData) {
-      return NextResponse.json(
-        { error: "Broker wallet not found" },
-        { status: 400 }
-      );
-    }
+    const brokerWallet = getRoleWallet(session, "broker");
+    const borrowerWallet = (() => {
+      try {
+        return getRoleWallet(session, "borrower");
+      } catch {
+        return null;
+      }
+    })();
 
-    const brokerWallet = walletFromSeed(brokerWalletData.seed);
-    const borrowerWallet = borrowerWalletData
-      ? walletFromSeed(borrowerWalletData.seed)
-      : null;
-
-    // Pre-check: vault must have 0 assets (all deposits withdrawn)
+    // Precondition: vault must be empty.
     try {
-      const vaultInfo = await getVaultInfo(session.vaultId);
-      const vault = vaultInfo.result?.vault;
-      const assetsTotal = Number(vault?.AssetsTotal || "0");
+      const info = await getVaultInfo(session.vaultId);
+      const assetsTotal = Number(info.result?.vault?.AssetsTotal || "0");
       if (assetsTotal > 0) {
         return NextResponse.json(
           {
@@ -60,67 +53,61 @@ export async function POST(request: NextRequest) {
         );
       }
     } catch {
-      // vault_info failed — proceed anyway
+      // vault_info failed — proceed, VaultDelete will fail later if truly blocked.
     }
 
-    // Step 1: Handle loans still on ledger
-    const { getLoanInfo } = await import("@/lib/xrpl/loan");
-    // Include ALL loans except "closed" (already deleted from ledger)
-    const allLoans = await LoanModel.find({
-      sessionId,
-      status: { $ne: "closed" },
-    });
+    const allLoans = await LoanModel.find({ sessionId, status: { $ne: "closed" } });
     for (const loan of allLoans) {
       try {
         const info = await getLoanInfo(loan.loanId);
         const node = info.result?.node;
         if (!node) continue;
 
-        // If loan is active with outstanding payments, default it first
         if (node.PaymentRemaining > 0) {
           try {
             const defaultTx = buildLoanManage(
               brokerWallet.classicAddress,
               loan.loanId,
-              LOAN_MANAGE_FLAGS.tfLoanDefault
+              LoanManageFlags.tfLoanDefault
             );
             await submitTransaction(brokerWallet, defaultTx);
           } catch {
-            // Default may fail (e.g. grace period not expired) — try delete anyway
+            // Grace period may not be expired — fall through to delete attempt.
           }
         }
 
-        // Now delete the loan
         const wallet = borrowerWallet || brokerWallet;
-        const tx = buildLoanDelete(wallet.classicAddress, loan.loanId);
-        await submitTransaction(wallet, tx);
+        await submitTransaction(wallet, buildLoanDelete(wallet.classicAddress, loan.loanId));
       } catch {
-        // Loan not on ledger or delete failed — skip
+        // Loan not on ledger or delete failed — continue cleanup.
       }
     }
 
-    // Step 2: Handle broker — withdraw first-loss capital then delete
     if (session.loanBrokerId) {
       try {
         const brokerInfo = await getLoanInfo(session.loanBrokerId);
         const brokerNode = brokerInfo.result?.node;
         if (brokerNode) {
-          // Withdraw all first-loss capital if any
           const coverAvailable = Number(brokerNode.CoverAvailable || 0);
           if (coverAvailable > 0) {
             try {
+              // Match the vault's asset type — the ledger rejects mismatches
+              // with tecWRONG_ASSET.
+              const isToken = hasIssuedToken(session.issuedToken);
+              const withdrawAmount = isToken
+                ? buildAmountField(session.issuedToken, String(coverAvailable))
+                : String(coverAvailable);
               const withdrawTx = buildLoanBrokerCoverWithdraw(
                 brokerWallet.classicAddress,
                 session.loanBrokerId,
-                String(coverAvailable)
+                withdrawAmount
               );
               await submitTransaction(brokerWallet, withdrawTx);
             } catch {
-              // Cover withdraw failed — try delete anyway
+              // Cover withdraw may fail — proceed, broker delete will surface the real error.
             }
           }
 
-          // Delete broker
           const deleteTx = buildLoanBrokerDelete(
             brokerWallet.classicAddress,
             session.loanBrokerId
@@ -128,15 +115,13 @@ export async function POST(request: NextRequest) {
           await submitTransaction(brokerWallet, deleteTx);
         }
       } catch {
-        // Broker not on ledger — skip
+        // Broker not on ledger — skip.
       }
     }
 
-    // Step 3: Delete vault on-chain
     const tx = buildVaultDelete(brokerWallet.classicAddress, session.vaultId);
     const result = await submitTransaction(brokerWallet, tx);
 
-    // All on-chain operations succeeded — update DB
     for (const loan of allLoans) {
       const newStatus = loan.paymentsRemaining === 0 ? "closed" : "defaulted";
       await LoanModel.findByIdAndUpdate(loan._id, { status: newStatus });
@@ -145,16 +130,15 @@ export async function POST(request: NextRequest) {
       { vaultId: session.vaultId },
       { status: "deleted" }
     );
+    // Clear issuedToken along with vaultId — the IOU/MPT context belongs to the
+    // deleted vault and would be stale for any replacement XRP vault.
     await SessionModel.findByIdAndUpdate(sessionId, {
-      $unset: { vaultId: 1, loanBrokerId: 1 },
+      $unset: { vaultId: 1, loanBrokerId: 1, issuedToken: 1 },
     });
 
     return NextResponse.json({ result: result.result });
   } catch (error) {
     console.error("Vault delete error:", error);
-    return NextResponse.json(
-      { error: getErrorMessage(error) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }

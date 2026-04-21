@@ -77,9 +77,7 @@ export function SessionHeader() {
     if (!session?._id) return;
     setLoadingBalances(true);
     try {
-      const res = await fetch(
-        `/api/session/balances?sessionId=${session._id}`
-      );
+      const res = await fetch("/api/session/balances");
       if (res.ok) {
         const data = await res.json();
         const map: Record<string, string> = {};
@@ -125,7 +123,6 @@ export function SessionHeader() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionId: session._id,
           from: transferFrom,
           to: transferTo,
           amount: transferAmount,
@@ -351,11 +348,7 @@ export function SessionHeader() {
                     onClick={async () => {
                       setToppingUp(true);
                       try {
-                        const res = await fetch("/api/session/topup", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ sessionId: session._id }),
-                        });
+                        const res = await fetch("/api/session/topup", { method: "POST" });
                         if (res.ok) {
                           const data = await res.json();
                           const map: Record<string, string> = {};

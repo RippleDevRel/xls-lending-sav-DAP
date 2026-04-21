@@ -17,13 +17,12 @@ import type { LoanState } from "@/types/loan";
 
 interface ManageLoansProps {
   loans: LoanState[];
-  sessionId: string;
   token?: string;
   onUpdate: () => void;
   onStatus: (type: "success" | "error" | "pending", message: string, txHash?: string) => void;
 }
 
-export function ManageLoans({ loans, sessionId, token, onUpdate, onStatus }: ManageLoansProps) {
+export function ManageLoans({ loans, token, onUpdate, onStatus }: ManageLoansProps) {
   const unit = token || "XRP";
   const isToken = !!token;
   async function handleDefault(loanId: string) {
@@ -33,7 +32,7 @@ export function ManageLoans({ loans, sessionId, token, onUpdate, onStatus }: Man
       const res = await fetch("/api/loan/default", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, loanId, action: "default" }),
+        body: JSON.stringify({ loanId, action: "default" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -50,7 +49,7 @@ export function ManageLoans({ loans, sessionId, token, onUpdate, onStatus }: Man
       const res = await fetch("/api/loan/default", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, loanId, action: "close" }),
+        body: JSON.stringify({ loanId, action: "close" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);

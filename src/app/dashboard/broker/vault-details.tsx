@@ -26,7 +26,6 @@ import { explorerObjectUrl, explorerMptUrl } from "@/lib/explorer";
 
 interface VaultDetailsProps {
   vaultId: string;
-  sessionId: string;
   loanBrokerId?: string | null;
   onDeleted: (txHash?: string) => void;
 }
@@ -62,7 +61,7 @@ interface BrokerOnChain {
   DebtMaximum?: string;
 }
 
-export function VaultDetails({ vaultId, sessionId, loanBrokerId, onDeleted }: VaultDetailsProps) {
+export function VaultDetails({ vaultId, loanBrokerId, onDeleted }: VaultDetailsProps) {
   const [onChain, setOnChain] = useState<VaultOnChain | null>(null);
   const [brokerData, setBrokerData] = useState<BrokerOnChain | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,11 +104,7 @@ export function VaultDetails({ vaultId, sessionId, loanBrokerId, onDeleted }: Va
     if (!confirm("Delete this vault? This will delete all loans, the broker, and the vault from the ledger.")) return;
     setDeleting(true);
     try {
-      const res = await fetch("/api/vault/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      });
+      const res = await fetch("/api/vault/delete", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
         alert(data.error || "Failed to delete vault");
@@ -280,7 +275,7 @@ export function VaultDetails({ vaultId, sessionId, loanBrokerId, onDeleted }: Va
                 {brokerData.ManagementFeeRate !== undefined && (
                   <TermRow
                     label="Management fee"
-                    value={`${(brokerData.ManagementFeeRate / 100).toFixed(1)}%`}
+                    value={`${(brokerData.ManagementFeeRate / 1000).toFixed(2)}%`}
                   />
                 )}
                 {brokerData.DebtTotal !== undefined && (
@@ -302,13 +297,13 @@ export function VaultDetails({ vaultId, sessionId, loanBrokerId, onDeleted }: Va
                 {brokerData.CoverRateMinimum !== undefined && (
                   <TermRow
                     label="Min cover rate"
-                    value={`${(brokerData.CoverRateMinimum / 100).toFixed(1)}%`}
+                    value={`${(brokerData.CoverRateMinimum / 1000).toFixed(2)}%`}
                   />
                 )}
                 {brokerData.CoverRateLiquidation !== undefined && (
                   <TermRow
                     label="Liquidation rate"
-                    value={`${(brokerData.CoverRateLiquidation / 100).toFixed(1)}%`}
+                    value={`${(brokerData.CoverRateLiquidation / 1000).toFixed(2)}%`}
                   />
                 )}
               </div>

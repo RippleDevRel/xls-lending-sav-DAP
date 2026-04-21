@@ -1,12 +1,19 @@
 import { Separator } from "@/components/ui/separator";
 import { AmountDisplay } from "@/components/amount-display";
 import { DROPS_PER_XRP } from "@/lib/constants";
+import { amortize } from "@/lib/loan-math";
 
 interface FeeBreakdownProps {
+  /** Drops for XRP, human units for tokens. */
   principalRequested: string;
+  /** Basis points (e.g. 500 = 5%). */
   interestRate: number;
   paymentTotal: number;
+  /** Seconds between payments. */
+  paymentInterval: number;
+  /** Drops for XRP, human units for tokens. */
   originationFee: string;
+  /** Per-installment service fee in drops/units. */
   serviceFee: string;
   token?: string;
 }
@@ -15,6 +22,7 @@ export function FeeBreakdown({
   principalRequested,
   interestRate,
   paymentTotal,
+  paymentInterval,
   originationFee,
   serviceFee,
   token,
@@ -22,13 +30,19 @@ export function FeeBreakdown({
   const unit = token || "XRP";
   const parse = token ? parseFloat : parseInt;
   const principal = parse(principalRequested);
-  const totalInterest = Math.floor((principal * interestRate) / 10000);
-  const totalServiceFees = parse(serviceFee) * paymentTotal;
-  const totalToRepay = principal + totalInterest + totalServiceFees;
-  const periodicPayment = Math.ceil(totalToRepay / paymentTotal);
 
-  const formatAmount = (drops: number) =>
-    token ? drops.toFixed(2) : (drops / DROPS_PER_XRP).toFixed(2);
+  // Mirror the ledger's XLS-66 amortization so the preview matches on-chain values.
+  const { periodicPayment, totalOutstanding, totalInterest } = amortize({
+    principal,
+    interestRateBps: interestRate,
+    paymentTotal,
+    paymentInterval,
+  });
+  const totalServiceFees = parse(serviceFee) * paymentTotal;
+  const totalToRepay = totalOutstanding + totalServiceFees;
+
+  const formatAmount = (value: number) =>
+    token ? value.toFixed(2) : (value / DROPS_PER_XRP).toFixed(2);
 
   return (
     <div className="rounded-lg bg-muted/50 p-4 space-y-2 text-sm">
@@ -36,14 +50,14 @@ export function FeeBreakdown({
         <AmountDisplay drops={principalRequested} token={token} />
       </Row>
       <Row label={`Interest (${(interestRate / 100).toFixed(1)}%)`}>
-        <AmountDisplay drops={totalInterest.toString()} token={token} />
+        <AmountDisplay drops={Math.round(totalInterest).toString()} token={token} />
       </Row>
       <Row label={`Service fees (${paymentTotal}×)`}>
-        <AmountDisplay drops={totalServiceFees.toString()} token={token} />
+        <AmountDisplay drops={Math.round(totalServiceFees).toString()} token={token} />
       </Row>
       <Separator />
       <Row label="Total to repay" className="font-medium text-foreground">
-        <AmountDisplay drops={totalToRepay.toString()} token={token} />
+        <AmountDisplay drops={Math.round(totalToRepay).toString()} token={token} />
       </Row>
       <Row label="Est. per payment" className="text-muted-foreground">
         <span className="font-mono">
