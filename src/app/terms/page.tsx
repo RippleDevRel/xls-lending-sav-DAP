@@ -1,7 +1,13 @@
+import type { Metadata } from "next";
 import { Footer } from "@/components/footer";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Terms of Service",
+  description: "Service disclaimer, data collection, and privacy policy for the XLS-66 lending reference app.",
+};
 
 export default function TermsPage() {
   return (
