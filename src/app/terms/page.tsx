@@ -34,7 +34,7 @@ export default function TermsPage() {
               Service Disclaimer
             </h2>
             <p className="mb-3">
-              The webapp available at TBD (the &quot;Service&quot;) is provided
+              The webapp available at <i>https://xls-lending-sav-dap.vercel.app</i> (the &quot;Service&quot;) is provided
               exclusively for testing and development purposes on supported
               testnets.
             </p>
