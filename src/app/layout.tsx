@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 // Central site identity. Update these when rebranding the template so
 // metadata, manifest, and Open Graph tags stay in sync.
-const SITE_NAME = "XLS-66 Lending Protocol · XRPL Reference App";
+const SITE_NAME = "XLS-66 Lending Protocol · XRPL Demo App";
 const SITE_SHORT_NAME = "XLS-66 & XLS-65Lending";
 const SITE_DESCRIPTION =
   "Open-source demo application implementing the XRP Ledger lending amendments (XLS-66 + XLS-65) on Devnet.";
