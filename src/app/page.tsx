@@ -130,7 +130,7 @@ export default function Home() {
               className="text-lg sm:text-xl text-muted-foreground font-normal leading-relaxed"
             />
             <p className="mt-3 text-sm text-muted-foreground/70">
-              KYC compliance, underwriting, and contracting happen off-chain before the loan is issued on-ledger.
+              KYC compliance, underwriting, and contracting should happen off-chain before the loan is issued on-ledger.
             </p>
           </motion.div>
         </div>
