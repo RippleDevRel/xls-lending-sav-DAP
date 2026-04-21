@@ -18,9 +18,9 @@ const geistMono = Geist_Mono({
 // Central site identity. Update these when rebranding the template so
 // metadata, manifest, and Open Graph tags stay in sync.
 const SITE_NAME = "XLS-66 Lending Protocol · XRPL Reference App";
-const SITE_SHORT_NAME = "XLS-66 Lending";
+const SITE_SHORT_NAME = "XLS-66 & XLS-65Lending";
 const SITE_DESCRIPTION =
-  "Open-source reference implementation of the XRP Ledger lending amendments (XLS-66) and Single Asset Vaults (XLS-65). Full loan lifecycle, three roles, three asset types (XRP / IOU / MPT).";
+  "Open-source demo application implementing the XRP Ledger lending amendments (XLS-66 + XLS-65) on Devnet.";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
 export const viewport: Viewport = {
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
   },
   description: SITE_DESCRIPTION,
   applicationName: SITE_SHORT_NAME,
-  authors: [{ name: "Ripple DevRel" }],
+  authors: [{ name: "krkmu" }],
   keywords: [
     "XRPL",
     "XRP Ledger",
@@ -51,11 +51,11 @@ export const metadata: Metadata = {
     "Single Asset Vault",
     "MPT",
     "DeFi",
-    "private credit",
+    "repo",
   ],
   category: "finance",
-  creator: "Ripple DevRel",
-  publisher: "Ripple",
+  creator: "krkmu",
+  publisher: "krkmu",
   robots: { index: true, follow: true },
   manifest: "/manifest.webmanifest",
   icons: { icon: "/favicon.ico" },

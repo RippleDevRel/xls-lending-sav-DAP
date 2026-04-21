@@ -5,10 +5,6 @@ import { Separator } from "@/components/ui/separator";
 const links: { label: string; href: string; isTwitter?: boolean }[] = [
   { label: "XRPL", href: "https://xrpl.org/" },
   {
-    label: "RLUSD Stablecoin",
-    href: "https://docs.ripple.com/products/stablecoin",
-  },
-  {
     label: "XLS-66 Docs",
     href: "https://xrpl.org/docs/concepts/tokens/lending-protocol",
   },
@@ -16,7 +12,14 @@ const links: { label: string; href: string; isTwitter?: boolean }[] = [
     label: "XLS-65 Docs",
     href: "https://xrpl.org/docs/concepts/tokens/single-asset-vaults",
   },
-  { label: "RippleXDev", href: "https://x.com/RippleXDev", isTwitter: true },
+  {
+    label: "XLS-66 Spec",
+    href: "https://github.com/XRPLF/XRPL-Standards/tree/master/XLS-0066-lending-protocol",
+  },
+  {
+    label: "XLS-65 Spec",
+    href: "https://github.com/XRPLF/XRPL-Standards/tree/master/XLS-0065-single-asset-vault",
+  },
 ];
 
 export function Footer() {
@@ -50,11 +53,9 @@ export function Footer() {
 
           <div className="flex items-center gap-4 text-xs text-muted-foreground/60">
             <a href="/terms" className="hover:text-primary transition-colors">Terms of Service</a>
-            <a href="https://ripple.com/legal/privacy-policy/" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">Privacy Policy</a>
           </div>
 
           <div className="flex flex-col items-center gap-1 text-xs text-muted-foreground/60">
-            <span>Built by RippleX Ecosystem Growth Team</span>
             <a
               href="https://x.com/krkmu_"
               target="_blank"

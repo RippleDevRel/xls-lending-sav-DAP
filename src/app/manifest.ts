@@ -6,10 +6,10 @@ import type { MetadataRoute } from "next";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "XLS-66 Lending Protocol · XRPL Reference App",
-    short_name: "XLS-66 Lending",
+    name: "XLS-66 & XLS-65 Lending Protocol · XRPL Reference App",
+    short_name: "XLS-66 & XLS-65Lending",
     description:
-      "Open-source reference implementation of the XRP Ledger lending amendments (XLS-66 + XLS-65) on Devnet.",
+      "Open-source demo application implementing the XRP Ledger lending amendments (XLS-66 + XLS-65) on Devnet.",
     start_url: "/",
     display: "standalone",
     background_color: "#0a0a0a",

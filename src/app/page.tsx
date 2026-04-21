@@ -214,15 +214,6 @@ export default function Home() {
                       you provide will be used to facilitate your use of the services
                       within this website. For more details see our{" "}
                       <a
-                        href="https://ripple.com/legal/privacy-policy/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline hover:text-primary transition-colors"
-                      >
-                        Privacy Policy
-                      </a>{" "}
-                      and{" "}
-                      <a
                         href="/terms"
                         target="_blank"
                         rel="noopener noreferrer"
