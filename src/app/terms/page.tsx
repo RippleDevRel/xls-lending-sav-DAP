@@ -79,8 +79,16 @@ export default function TermsPage() {
             <p>
               By using this website, you agree that the personal information you
               provide will be used to facilitate your use of the services within
-              this website. Replace this section with a link to your own
-              privacy policy when deploying a forked instance.
+              this website. For more details, see our{" "}
+              <a
+                href="https://ripple.com/legal/privacy-policy/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
+              >
+                Privacy Policy
+              </a>
+              .
             </p>
           </section>
         </div>
