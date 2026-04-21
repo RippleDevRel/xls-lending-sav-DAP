@@ -283,6 +283,31 @@ src/
 
 ## Security notes
 
+> ### ⚠️ Wallet seeds are stored in **plaintext** in MongoDB
+>
+> The four per-session wallets (broker, depositor, borrower, issuer) are
+> generated server-side and persisted **as-is** in the `Session.wallets`
+> array (see `src/lib/db/models/session.ts`: `seed`, `privateKey`,
+> `publicKey` fields). That's acceptable for a Devnet template because
+> the wallets only ever hold test-net XRP / IOUs / MPTs with no monetary
+> value.
+>
+> **Before shipping any fork to production you must:**
+>
+> 1. **Never reuse these generated wallets on Testnet or Mainnet.** Seeds
+>    that transit the DB, the app server, and (in the current flow) the
+>    client-side session lookup should be treated as compromised.
+> 2. **Replace the storage model.** Encrypt seeds at rest with a KMS
+>    (AWS KMS, Google Cloud KMS, HashiCorp Vault…), or — preferred — move
+>    wallet key material out of the server entirely: have each real user
+>    hold their own wallet in a browser extension / hardware wallet and
+>    co-sign transactions client-side. `LoanSet` already supports multi-sign
+>    via `xrpl.signLoanSetByCounterparty`.
+> 3. **Re-scope access.** The current demo exposes `session.wallets[*].seed`
+>    to the authenticated client for display convenience. Any production
+>    rewrite should stop returning seeds from `/api/session/me` and friends
+>    altogether.
+
 - **Password storage**: scrypt + random 16-byte salt, compared with
   `timingSafeEqual`. See `src/lib/auth.ts`.
 - **Session routing**: `sessionId` always read from the httpOnly cookie,
@@ -292,9 +317,10 @@ src/
   being used in a tx. See `src/lib/validation.ts`.
 - **On-chain verification**: `assertTxSuccess(result, txType)` throws on
   anything other than `tesSUCCESS`, so the DB never records an assumed state.
-- **Demo wallets are server-controlled.** For a production app where each
-  role is a real user, move wallet key material to the client (or to a
-  dedicated KMS) and have the client co-sign `LoanSet`.
+- **Demo wallets are server-controlled.** Beyond the plaintext-seed issue
+  above, a real lending product wouldn't give one server custody of the
+  broker, depositor, and borrower keys at the same time — each role should
+  be a distinct user with their own wallet.
 
 ## Out of scope (TBD)
 
