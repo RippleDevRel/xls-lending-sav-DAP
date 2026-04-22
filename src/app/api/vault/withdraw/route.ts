@@ -44,15 +44,20 @@ export async function POST(request: NextRequest) {
 
     let amount: string | Record<string, string>;
     let ledgerAmount: string;
+    // Captured when redeemAll: assetsTotal on-ledger before the withdraw,
+    // used to derive the delivered asset amount for DepositHistory.
+    let preAssetsTotal: number | null = null;
     if (redeemAll) {
       const vaultInfo = await getVaultInfo(vaultId);
-      const shareMPTID = vaultInfo.result?.vault?.ShareMPTID as string | undefined;
+      const vaultNode = vaultInfo.result?.vault;
+      const shareMPTID = vaultNode?.ShareMPTID as string | undefined;
       if (!shareMPTID) {
         return NextResponse.json(
           { error: "Vault has no share MPT ID on ledger" },
           { status: 500 }
         );
       }
+      preAssetsTotal = Number(vaultNode?.AssetsTotal ?? "0");
       const client = await getXrplClient();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const objs = await (client as any).request({
@@ -72,7 +77,9 @@ export async function POST(request: NextRequest) {
         );
       }
       amount = { mpt_issuance_id: shareMPTID, value: shareBalance };
-      ledgerAmount = shareBalance;
+      // `ledgerAmount` is a provisional value; overwritten below with the
+      // actual asset delivered (pre - post AssetsTotal) after the tx lands.
+      ledgerAmount = "0";
     } else if (isToken && body.tokenAmount) {
       amount = buildAmountField(issuedToken, body.tokenAmount);
       ledgerAmount =
@@ -94,6 +101,16 @@ export async function POST(request: NextRequest) {
     const tx = buildVaultWithdraw(depositorWallet.classicAddress, vaultId, amount);
     const result = await submitTransaction(depositorWallet, tx);
 
+    const snapshot = await fetchVaultSnapshot(vaultId);
+
+    // For redeemAll, convert the share-denominated tx into an asset-denominated
+    // history entry so the PNL view shows a coherent number. Falls back to
+    // "0" if snapshot failed or the vault was emptied and removed.
+    if (redeemAll && preAssetsTotal !== null) {
+      const postAssetsTotal = snapshot ? Number(snapshot.assetsTotal) : 0;
+      ledgerAmount = String(Math.max(0, preAssetsTotal - postAssetsTotal));
+    }
+
     const txHash = (result.result as unknown as Record<string, unknown>).hash as string;
     await DepositHistoryModel.create({
       sessionId,
@@ -103,7 +120,6 @@ export async function POST(request: NextRequest) {
       txHash,
     });
 
-    const snapshot = await fetchVaultSnapshot(vaultId);
     if (snapshot) {
       await VaultModel.findOneAndUpdate(
         { vaultId },
