@@ -34,9 +34,21 @@ export async function POST(request: NextRequest) {
     const issuedToken = session.issuedToken;
     const isToken = hasIssuedToken(issuedToken);
 
+    // XLS-65 VaultWithdraw special case: Amount = 0 means "redeem all shares".
+    // The client uses this for the "Max" button to avoid precision drift
+    // between the unscaled UI value and the on-chain integer.
+    const redeemAll = body.redeemAll === true;
+
     let amount: string | Record<string, string>;
     let ledgerAmount: string;
-    if (isToken && body.tokenAmount) {
+    if (redeemAll) {
+      amount = isToken && issuedToken
+        ? issuedToken.type === "IOU"
+          ? { currency: issuedToken.currency!, issuer: issuedToken.issuer!, value: "0" }
+          : { mpt_issuance_id: issuedToken.mptIssuanceId!, value: "0" }
+        : "0";
+      ledgerAmount = "0";
+    } else if (isToken && body.tokenAmount) {
       amount = buildAmountField(issuedToken, body.tokenAmount);
       ledgerAmount =
         issuedToken.type === "IOU"

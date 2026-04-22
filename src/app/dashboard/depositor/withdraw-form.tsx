@@ -78,33 +78,44 @@ export function WithdrawForm({
     }
   }
 
+  /**
+   * XLS-65 "redeem all shares" flow: send Amount.value = 0 and let the ledger
+   * burn all of the caller's shares. Avoids the precision drift that happens
+   * when we unscale the on-chain integer to a decimal, display it, and then
+   * re-scale it back — rippled's invariant checker rejects any mismatch
+   * (tecINVARIANT_FAILED).
+   */
   async function handleWithdrawAll() {
-    let availableLedger = vaultAssetsAvailable || vaultAssetsTotal || "0";
-    try {
-      const res = await fetch(`/api/vault/${vaultId}`);
-      if (res.ok) {
-        const data = await res.json();
-        const v = data.onLedger?.vault;
-        availableLedger = v?.AssetsAvailable || v?.AssetsTotal || availableLedger;
-      }
-    } catch { /* use prop value */ }
-
-    if (Number(availableLedger) === 0) {
+    const latest = vaultAssetsAvailable || vaultAssetsTotal || "0";
+    if (Number(latest) === 0) {
       onError("No available assets to withdraw. Some may be locked in active loans.");
       return;
     }
 
-    await handleWithdraw(availableLedger);
+    setLoading(true);
+    const display = toDisplay(latest);
+    onPending(`Withdrawing ${display} ${unit} from vault...`);
+
+    try {
+      const res = await fetch("/api/vault/withdraw", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vaultId, redeemAll: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      onSuccess(`Redeemed all shares (${display} ${unit})`, data.result?.hash);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Withdrawal failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  // Use AssetsAvailable (not Total) — some assets may be locked in loans
+  // AssetsAvailable (not Total) — some assets may be locked in active loans.
   const withdrawable = vaultAssetsAvailable || vaultAssetsTotal;
   const hasAssets = withdrawable && Number(withdrawable) > 0;
-  const availableDisplay = hasAssets
-    ? isToken
-      ? withdrawable
-      : (parseInt(withdrawable) / DROPS_PER_XRP).toFixed(2)
-    : null;
+  const availableDisplay = hasAssets ? toDisplay(withdrawable) : null;
 
   return (
     <div className="space-y-4">
@@ -113,13 +124,9 @@ export function WithdrawForm({
           <div className="flex items-center justify-between">
             <Label htmlFor="withdraw-amount">Shares to redeem</Label>
             {availableDisplay && (
-              <button
-                type="button"
-                onClick={() => setAmount(availableDisplay)}
-                className="text-xs text-primary hover:underline"
-              >
-                Max available: {availableDisplay} {unit}
-              </button>
+              <span className="text-xs text-muted-foreground">
+                Available: {availableDisplay} {unit}
+              </span>
             )}
           </div>
           <Input
