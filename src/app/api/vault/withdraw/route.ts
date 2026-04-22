@@ -9,7 +9,6 @@ import {
   buildAmountField,
   hasIssuedToken,
   fetchVaultSnapshot,
-  getXrplClient,
 } from "@/lib/xrpl/helpers";
 import { MPT_SCALE_MULTIPLIER } from "@/lib/constants";
 
@@ -35,51 +34,40 @@ export async function POST(request: NextRequest) {
     const issuedToken = session.issuedToken;
     const isToken = hasIssuedToken(issuedToken);
 
-    // "Redeem all" (XLS-65 §3.2.2): Amount may be denominated in the vault's
-    // SHARE MPT rather than the vault's asset. We read the depositor's exact
-    // share holding from account_objects and pass it through as-is — no
-    // client-side math, so no precision drift that would trip the ledger's
-    // invariant checker.
+    // "Redeem all" (XLS-65 §3.2.2, asset-denominated path): take the vault's
+    // current AssetsAvailable as a raw on-chain integer and pass it through
+    // unchanged. rippled computes the matching share burn via the Withdraw
+    // formula (§2.1.7.2.3). No client-side math → no precision drift, no
+    // dependence on share-denominated edge cases (which as of 2026-04 still
+    // trip tecINVARIANT_FAILED on full redemption).
+    //
+    // The demo uses a single depositor per session so AssetsAvailable maps
+    // 1:1 to their share; for a multi-depositor fork this helper should
+    // instead compute shares × (AssetsAvailable / OutstandingAmount).
     const redeemAll = body.redeemAll === true;
 
     let amount: string | Record<string, string>;
     let ledgerAmount: string;
-    // Captured when redeemAll: assetsTotal on-ledger before the withdraw,
-    // used to derive the delivered asset amount for DepositHistory.
     let preAssetsTotal: number | null = null;
     if (redeemAll) {
       const vaultInfo = await getVaultInfo(vaultId);
       const vaultNode = vaultInfo.result?.vault;
-      const shareMPTID = vaultNode?.ShareMPTID as string | undefined;
-      if (!shareMPTID) {
+      const rawAvailable = String(vaultNode?.AssetsAvailable ?? "0");
+      if (rawAvailable === "0") {
         return NextResponse.json(
-          { error: "Vault has no share MPT ID on ledger" },
-          { status: 500 }
-        );
-      }
-      preAssetsTotal = Number(vaultNode?.AssetsTotal ?? "0");
-      const client = await getXrplClient();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const objs = await (client as any).request({
-        command: "account_objects",
-        account: depositorWallet.classicAddress,
-        type: "mptoken",
-        ledger_index: "validated",
-      });
-      const shareHolding = objs.result?.account_objects?.find(
-        (o: { MPTokenIssuanceID?: string }) => o.MPTokenIssuanceID === shareMPTID
-      );
-      const shareBalance = String(shareHolding?.MPTAmount ?? "0");
-      if (shareBalance === "0") {
-        return NextResponse.json(
-          { error: "No shares held in this vault" },
+          { error: "No assets available to withdraw" },
           { status: 400 }
         );
       }
-      amount = { mpt_issuance_id: shareMPTID, value: shareBalance };
-      // `ledgerAmount` is a provisional value; overwritten below with the
-      // actual asset delivered (pre - post AssetsTotal) after the tx lands.
-      ledgerAmount = "0";
+      preAssetsTotal = Number(vaultNode?.AssetsTotal ?? "0");
+      if (issuedToken?.type === "MPT" && issuedToken.mptIssuanceId) {
+        amount = { mpt_issuance_id: issuedToken.mptIssuanceId, value: rawAvailable };
+      } else if (issuedToken?.type === "IOU" && issuedToken.currency && issuedToken.issuer) {
+        amount = { currency: issuedToken.currency, issuer: issuedToken.issuer, value: rawAvailable };
+      } else {
+        amount = rawAvailable; // XRP drops
+      }
+      ledgerAmount = rawAvailable;
     } else if (isToken && body.tokenAmount) {
       amount = buildAmountField(issuedToken, body.tokenAmount);
       ledgerAmount =
@@ -103,9 +91,9 @@ export async function POST(request: NextRequest) {
 
     const snapshot = await fetchVaultSnapshot(vaultId);
 
-    // For redeemAll, convert the share-denominated tx into an asset-denominated
-    // history entry so the PNL view shows a coherent number. Falls back to
-    // "0" if snapshot failed or the vault was emptied and removed.
+    // For redeemAll, the submitted AssetsAvailable may have shifted by the
+    // time the tx landed (other vault activity). Prefer the pre/post delta
+    // as the authoritative history amount when we have both values.
     if (redeemAll && preAssetsTotal !== null) {
       const postAssetsTotal = snapshot ? Number(snapshot.assetsTotal) : 0;
       ledgerAmount = String(Math.max(0, preAssetsTotal - postAssetsTotal));
