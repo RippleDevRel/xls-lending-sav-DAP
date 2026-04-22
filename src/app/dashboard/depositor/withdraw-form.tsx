@@ -79,11 +79,9 @@ export function WithdrawForm({
   }
 
   /**
-   * XLS-65 "redeem all shares" flow: send Amount.value = 0 and let the ledger
-   * burn all of the caller's shares. Avoids the precision drift that happens
-   * when we unscale the on-chain integer to a decimal, display it, and then
-   * re-scale it back — rippled's invariant checker rejects any mismatch
-   * (tecINVARIANT_FAILED).
+   * Redeem max: server tries the asset-denominated full-redemption path
+   * first and auto-falls back to a dust-leaving withdraw if rippled's
+   * 100%-redemption invariant fires (IOU vaults on current devnet).
    */
   async function handleWithdrawAll() {
     const latest = vaultAssetsAvailable || vaultAssetsTotal || "0";
@@ -104,7 +102,10 @@ export function WithdrawForm({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      onSuccess(`Redeemed all shares (${display} ${unit})`, data.result?.hash);
+      const msg = data.dustFallbackUsed
+        ? `Redeemed ~${display} ${unit} (tiny residual remains — rippled devnet limitation)`
+        : `Redeemed all shares (${display} ${unit})`;
+      onSuccess(msg, data.result?.hash);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Withdrawal failed");
     } finally {
