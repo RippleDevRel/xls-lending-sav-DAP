@@ -3,12 +3,13 @@ import { getErrorMessage } from "@/lib/api-error";
 import { validateDrops } from "@/lib/validation";
 import { requireAuthSession } from "@/lib/auth";
 import { connectDB, SessionModel, VaultModel, DepositHistoryModel } from "@/lib/db";
-import { buildVaultWithdraw, submitTransaction } from "@/lib/xrpl/vault";
+import { buildVaultWithdraw, submitTransaction, getVaultInfo } from "@/lib/xrpl/vault";
 import {
   getRoleWallet,
   buildAmountField,
   hasIssuedToken,
   fetchVaultSnapshot,
+  getXrplClient,
 } from "@/lib/xrpl/helpers";
 import { MPT_SCALE_MULTIPLIER } from "@/lib/constants";
 
@@ -34,20 +35,44 @@ export async function POST(request: NextRequest) {
     const issuedToken = session.issuedToken;
     const isToken = hasIssuedToken(issuedToken);
 
-    // XLS-65 VaultWithdraw special case: Amount = 0 means "redeem all shares".
-    // The client uses this for the "Max" button to avoid precision drift
-    // between the unscaled UI value and the on-chain integer.
+    // "Redeem all" (XLS-65 §3.2.2): Amount may be denominated in the vault's
+    // SHARE MPT rather than the vault's asset. We read the depositor's exact
+    // share holding from account_objects and pass it through as-is — no
+    // client-side math, so no precision drift that would trip the ledger's
+    // invariant checker.
     const redeemAll = body.redeemAll === true;
 
     let amount: string | Record<string, string>;
     let ledgerAmount: string;
     if (redeemAll) {
-      amount = isToken && issuedToken
-        ? issuedToken.type === "IOU"
-          ? { currency: issuedToken.currency!, issuer: issuedToken.issuer!, value: "0" }
-          : { mpt_issuance_id: issuedToken.mptIssuanceId!, value: "0" }
-        : "0";
-      ledgerAmount = "0";
+      const vaultInfo = await getVaultInfo(vaultId);
+      const shareMPTID = vaultInfo.result?.vault?.ShareMPTID as string | undefined;
+      if (!shareMPTID) {
+        return NextResponse.json(
+          { error: "Vault has no share MPT ID on ledger" },
+          { status: 500 }
+        );
+      }
+      const client = await getXrplClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const objs = await (client as any).request({
+        command: "account_objects",
+        account: depositorWallet.classicAddress,
+        type: "mptoken",
+        ledger_index: "validated",
+      });
+      const shareHolding = objs.result?.account_objects?.find(
+        (o: { MPTokenIssuanceID?: string }) => o.MPTokenIssuanceID === shareMPTID
+      );
+      const shareBalance = String(shareHolding?.MPTAmount ?? "0");
+      if (shareBalance === "0") {
+        return NextResponse.json(
+          { error: "No shares held in this vault" },
+          { status: 400 }
+        );
+      }
+      amount = { mpt_issuance_id: shareMPTID, value: shareBalance };
+      ledgerAmount = shareBalance;
     } else if (isToken && body.tokenAmount) {
       amount = buildAmountField(issuedToken, body.tokenAmount);
       ledgerAmount =
