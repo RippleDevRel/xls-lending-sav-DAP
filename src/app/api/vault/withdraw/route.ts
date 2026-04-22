@@ -60,14 +60,33 @@ export async function POST(request: NextRequest) {
         );
       }
       preAssetsTotal = Number(vaultNode?.AssetsTotal ?? "0");
+
+      // Truncate the submitted amount to cents (2 decimals). rippled's
+      // invariant checker rejects VaultWithdraw that would leave both
+      // AssetsTotal and OutstandingAmount at exactly zero — by always
+      // leaving sub-cent dust in the vault we stay under 100% redemption
+      // and the tx lands cleanly. The dust is invisible to the depositor.
+      const truncatedValue = (Math.floor(Number(rawAvailable) * 100) / 100).toFixed(2);
+
       if (issuedToken?.type === "MPT" && issuedToken.mptIssuanceId) {
-        amount = { mpt_issuance_id: issuedToken.mptIssuanceId, value: rawAvailable };
+        // MPT on-chain values are already integer-scaled. Truncation to
+        // cents is the same as subtracting the sub-cent MPT units, which
+        // for AssetScale 2 is a no-op — so we instead keep one unit
+        // (= 0.01 human) of dust to guarantee < 100% redemption.
+        const safeValue = String(
+          Math.max(0, Math.round(parseFloat(truncatedValue) * MPT_SCALE_MULTIPLIER) - 1)
+        );
+        amount = { mpt_issuance_id: issuedToken.mptIssuanceId, value: safeValue };
+        ledgerAmount = safeValue;
       } else if (issuedToken?.type === "IOU" && issuedToken.currency && issuedToken.issuer) {
-        amount = { currency: issuedToken.currency, issuer: issuedToken.issuer, value: rawAvailable };
+        amount = { currency: issuedToken.currency, issuer: issuedToken.issuer, value: truncatedValue };
+        ledgerAmount = truncatedValue;
       } else {
-        amount = rawAvailable; // XRP drops
+        // XRP: leave 10_000 drops (0.01 XRP) of dust for the same reason.
+        const rawDrops = Number(rawAvailable);
+        amount = String(Math.max(0, rawDrops - 10_000));
+        ledgerAmount = amount;
       }
-      ledgerAmount = rawAvailable;
     } else if (isToken && body.tokenAmount) {
       amount = buildAmountField(issuedToken, body.tokenAmount);
       ledgerAmount =
