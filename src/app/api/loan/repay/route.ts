@@ -11,6 +11,7 @@ import {
   hasIssuedToken,
   computeFullPaymentAmount,
   computeLatePaymentAmount,
+  isLedgerEntryNotFound,
 } from "@/lib/xrpl/helpers";
 import { MPT_SCALE_MULTIPLIER } from "@/lib/constants";
 
@@ -83,20 +84,25 @@ export async function POST(request: NextRequest) {
           : String(rawOutstanding);
         const status = remaining === 0 || rawOutstanding === 0 ? "repaid" : "active";
         await LoanModel.findOneAndUpdate(
-          { loanId },
+          { loanId, sessionId },
           { paymentsRemaining: remaining, principalOutstanding: outstanding, status }
         );
       } else {
+        // Successful response with no node → loan was deleted.
         await LoanModel.findOneAndUpdate(
-          { loanId },
+          { loanId, sessionId },
           { paymentsRemaining: 0, principalOutstanding: "0", status: "repaid" }
         );
       }
-    } catch {
-      await LoanModel.findOneAndUpdate(
-        { loanId },
-        { paymentsRemaining: 0, principalOutstanding: "0", status: "repaid" }
-      );
+    } catch (err) {
+      // Only treat the loan as gone if the ledger explicitly says so.
+      // Transient RPC errors must not flip the loan to "repaid".
+      if (isLedgerEntryNotFound(err)) {
+        await LoanModel.findOneAndUpdate(
+          { loanId, sessionId },
+          { paymentsRemaining: 0, principalOutstanding: "0", status: "repaid" }
+        );
+      }
     }
 
     // Echo the server-computed amount so the client can display the real debit.

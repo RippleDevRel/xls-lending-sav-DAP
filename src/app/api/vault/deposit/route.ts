@@ -9,8 +9,8 @@ import {
   buildAmountField,
   hasIssuedToken,
   fetchVaultSnapshot,
+  humanToMptUnits,
 } from "@/lib/xrpl/helpers";
-import { MPT_SCALE_MULTIPLIER } from "@/lib/constants";
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       ledgerAmount =
         issuedToken.type === "IOU"
           ? body.tokenAmount
-          : String(Math.round(parseFloat(body.tokenAmount) * MPT_SCALE_MULTIPLIER));
+          : humanToMptUnits(body.tokenAmount);
     } else {
       const drops = validateDrops(body.amountDrops);
       if (!drops) {
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     const snapshot = await fetchVaultSnapshot(vaultId);
     if (snapshot) {
       await VaultModel.findOneAndUpdate(
-        { vaultId },
+        { vaultId, sessionId },
         { totalDeposited: snapshot.assetsTotal, sharesMinted: snapshot.sharesMinted }
       );
     }

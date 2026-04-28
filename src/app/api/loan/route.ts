@@ -4,7 +4,13 @@ import { validateAssetAmount, validateNumber } from "@/lib/validation";
 import { requireAuthSession } from "@/lib/auth";
 import { connectDB, SessionModel, LoanModel } from "@/lib/db";
 import { buildLoanSet, signAndSubmitLoanSet, getLoanInfo } from "@/lib/xrpl/loan";
-import { getRoleWallet, extractCreatedLedgerId, hasIssuedToken } from "@/lib/xrpl/helpers";
+import {
+  getRoleWallet,
+  extractCreatedLedgerId,
+  hasIssuedToken,
+  isLedgerEntryNotFound,
+  humanToMptUnits,
+} from "@/lib/xrpl/helpers";
 import {
   DEFAULT_INTEREST_RATE_BPS,
   DEFAULT_PAYMENT_TOTAL,
@@ -50,8 +56,7 @@ export async function POST(request: NextRequest) {
     // MPT ledger convention: integer units scaled by AssetScale (else tecPRECISION_LOSS
     // fires because the on-chain amortization rounds a sub-scale value to zero).
     // So we keep "human" values for persistence and only scale at the tx boundary.
-    const toLedger = (human: string): string =>
-      isMPT ? String(Math.round(parseFloat(human) * MPT_SCALE_MULTIPLIER)) : human;
+    const toLedger = (human: string): string => (isMPT ? humanToMptUnits(human) : human);
 
     const principalRequested = valAmt(body.principalRequested) || defaultPrincipal;
     const interestRate = validateNumber(body.interestRate, 0, 50000) ?? DEFAULT_INTEREST_RATE_BPS;
@@ -60,6 +65,14 @@ export async function POST(request: NextRequest) {
       validateNumber(body.paymentInterval, 60, MAX_INTERVAL_SECONDS) ?? DEFAULT_PAYMENT_INTERVAL;
     const gracePeriod =
       validateNumber(body.gracePeriod, 1, MAX_INTERVAL_SECONDS) ?? DEFAULT_GRACE_PERIOD;
+    // XLS-66: gracePeriod must be strictly less than paymentInterval. Surface
+    // a 400 here rather than a generic ledger error.
+    if (gracePeriod >= paymentInterval) {
+      return NextResponse.json(
+        { error: "gracePeriod must be less than paymentInterval" },
+        { status: 400 }
+      );
+    }
     const originationFee = valAmt(body.originationFee) || defaultOrigFee;
     const serviceFee = valAmt(body.serviceFee) || defaultSvcFee;
 
@@ -166,16 +179,20 @@ export async function GET() {
               status: doc.status,
             });
           }
-        } catch {
-          // Loan is off-ledger — decide which absorbing state.
-          doc.status = doc.status === "repaid" || doc.paymentsRemaining === 0 ? "closed" : "defaulted";
-          doc.paymentsRemaining = 0;
-          doc.principalOutstanding = "0";
-          await LoanModel.findByIdAndUpdate(doc._id, {
-            status: doc.status,
-            paymentsRemaining: 0,
-            principalOutstanding: "0",
-          });
+        } catch (err) {
+          // Only flip absorbing state when the ledger genuinely confirms the
+          // loan entry is gone. Transient RPC blips (timeouts, disconnects)
+          // would otherwise corrupt healthy loans into "defaulted".
+          if (isLedgerEntryNotFound(err)) {
+            doc.status = doc.status === "repaid" || doc.paymentsRemaining === 0 ? "closed" : "defaulted";
+            doc.paymentsRemaining = 0;
+            doc.principalOutstanding = "0";
+            await LoanModel.findByIdAndUpdate(doc._id, {
+              status: doc.status,
+              paymentsRemaining: 0,
+              principalOutstanding: "0",
+            });
+          }
         }
         return doc;
       })

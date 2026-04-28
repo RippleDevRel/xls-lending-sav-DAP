@@ -9,13 +9,22 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const sessionId = await requireAuthSession();
+    if (!sessionId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id: loanId } = await params;
 
     await connectDB();
-    const loanDb = await LoanModel.findOne({ loanId });
+    // Scope by sessionId — without this, any authenticated caller could
+    // read another user's loan record by guessing/observing a loanId.
+    const loanDb = await LoanModel.findOne({ loanId, sessionId });
+    if (!loanDb) {
+      return NextResponse.json({ error: "Loan not found" }, { status: 404 });
+    }
 
-    const sessionId = await requireAuthSession();
-    const session = sessionId ? await SessionModel.findById(sessionId) : null;
+    const session = await SessionModel.findById(sessionId);
     const isMPT = session?.issuedToken?.type === "MPT";
 
     let onLedger: unknown = null;

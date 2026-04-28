@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthSession } from "@/lib/auth";
 import { connectDB, SessionModel } from "@/lib/db";
+import { redactSession } from "@/lib/session-public";
 
 /**
  * Lightweight session probe — returns the session document for the caller's
@@ -26,5 +27,5 @@ export async function GET() {
     session.issuedToken = undefined;
   }
 
-  return NextResponse.json({ session });
+  return NextResponse.json({ session: redactSession(session) });
 }

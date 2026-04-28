@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { connectDB, SessionModel } from "@/lib/db";
 import { getXrplClient } from "@/lib/xrpl/client";
 import { requireAuthSession } from "@/lib/auth";
+import { MPT_SCALE_MULTIPLIER } from "@/lib/constants";
 
 export async function GET() {
   try {
@@ -68,8 +69,7 @@ export async function GET() {
                 o.MPTokenIssuanceID === issuedToken.mptIssuanceId
             );
             if (mpt && Number(mpt.MPTAmount) > 0) {
-              // AssetScale is 2, so divide by 100
-              tokenBalance = (Number(mpt.MPTAmount) / 100).toFixed(2);
+              tokenBalance = (Number(mpt.MPTAmount) / MPT_SCALE_MULTIPLIER).toFixed(2);
             }
           } catch { /* no MPT holding yet */ }
         }

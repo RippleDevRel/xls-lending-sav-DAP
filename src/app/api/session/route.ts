@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB, SessionModel } from "@/lib/db";
 import { generateAndFundWallet } from "@/lib/xrpl/wallet";
 import { hashPassword, verifyPassword, setAuthCookie } from "@/lib/auth";
+import { redactSession } from "@/lib/session-public";
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const MAX_EMAIL_LENGTH = 254;
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
         );
       }
       await setAuthCookie(existing._id.toString());
-      return NextResponse.json({ session: existing });
+      return NextResponse.json({ session: redactSession(existing) });
     }
 
     // Register: create new account
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
     const session = await SessionModel.create({ email, wallets, passwordHash });
     await setAuthCookie(session._id.toString());
 
-    return NextResponse.json({ session }, { status: 201 });
+    return NextResponse.json({ session: redactSession(session) }, { status: 201 });
   } catch (error) {
     console.error("Session creation error:", error);
     return NextResponse.json(
@@ -79,35 +80,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(request: NextRequest) {
-  try {
-    const raw = request.nextUrl.searchParams.get("email");
-    const email = sanitizeEmail(raw);
-
-    if (!email) {
-      return NextResponse.json(
-        { error: "A valid email address is required" },
-        { status: 400 }
-      );
-    }
-
-    await connectDB();
-
-    const session = await SessionModel.findOne({ email });
-
-    if (!session) {
-      return NextResponse.json(
-        { error: "Session not found" },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({ session });
-  } catch (error) {
-    console.error("Session fetch error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch session" },
-      { status: 500 }
-    );
-  }
-}
+// GET by email was removed — it returned the full session document
+// (passwordHash + every wallet's seed/privateKey) to anyone who knew the
+// email. Authenticated callers should use `GET /api/session/me`.

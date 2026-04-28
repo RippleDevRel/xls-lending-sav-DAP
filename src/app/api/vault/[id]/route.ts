@@ -9,15 +9,22 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const sessionId = await requireAuthSession();
+    if (!sessionId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id: vaultId } = await params;
 
     await connectDB();
-    const vaultDb = await VaultModel.findOne({ vaultId });
+    // Scope by sessionId — without this, any authenticated caller could
+    // read another user's vault record by guessing/observing a vaultId.
+    const vaultDb = await VaultModel.findOne({ vaultId, sessionId });
+    if (!vaultDb) {
+      return NextResponse.json({ error: "Vault not found" }, { status: 404 });
+    }
 
-    // Detect MPT vault to unscale on-chain amount fields to human decimals
-    // before returning to the UI.
-    const sessionId = await requireAuthSession();
-    const session = sessionId ? await SessionModel.findById(sessionId) : null;
+    const session = await SessionModel.findById(sessionId);
     const isMPT = session?.issuedToken?.type === "MPT";
 
     let onLedger: unknown = null;

@@ -9,8 +9,13 @@
 export interface BrokerOptions {
   /** 1/10 bps. Portion of loan interest that flows to the broker. */
   managementFeeRate?: number;
-  /** Hard cap on total outstanding debt the broker may originate. 0 = unlimited. */
-  debtMaximum?: number;
+  /**
+   * Hard cap on total outstanding debt the broker may originate. 0 = unlimited.
+   * Accepted as a number or a numeric string — XLS-66 declares this UINT64,
+   * and JS Number can only represent integers up to 2^53-1, so values above
+   * that must arrive as a decimal string.
+   */
+  debtMaximum?: number | string;
   /** 1/10 bps. Minimum first-loss capital ratio; below this the broker can't issue new loans. */
   coverRateMinimum?: number;
   /** 1/10 bps. Liquidation threshold; must be < coverRateMinimum. */
@@ -18,8 +23,9 @@ export interface BrokerOptions {
 }
 
 /**
- * LoanBrokerSet — create a broker (no LoanBrokerID) or update an existing one
- * (LoanBrokerID provided). Must reference an existing VaultID.
+ * LoanBrokerSet — create a broker for the supplied vault. (XLS-66 also
+ * permits update via this transaction by including LoanBrokerID, but this
+ * codebase only exercises the create path.)
  */
 export function buildLoanBrokerSet(
   brokerAddress: string,

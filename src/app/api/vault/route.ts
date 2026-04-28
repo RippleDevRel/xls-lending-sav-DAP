@@ -12,8 +12,9 @@ import {
   extractCreatedLedgerId,
   fetchVaultSnapshot,
   unscaleVaultNodeForMPT,
+  humanToMptUnits,
 } from "@/lib/xrpl/helpers";
-import { validateDrops, sanitizeString } from "@/lib/validation";
+import { validateDrops, validateAmount, sanitizeString } from "@/lib/validation";
 import { requireAuthSession } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
@@ -29,10 +30,6 @@ export async function POST(request: NextRequest) {
     if (raw.name) vaultOptions.name = sanitizeString(raw.name, 64);
     if (raw.website) vaultOptions.website = sanitizeString(raw.website, 128);
     if (raw.nonTransferableShares) vaultOptions.nonTransferableShares = true;
-    if (raw.assetsMaximum) {
-      const valid = validateDrops(raw.assetsMaximum);
-      if (valid) vaultOptions.assetsMaximum = valid;
-    }
 
     await connectDB();
     const session = await SessionModel.findById(sessionId);
@@ -43,6 +40,21 @@ export async function POST(request: NextRequest) {
     const brokerWallet = getRoleWallet(session, "broker");
 
     const assetType = raw.asset?.type;
+
+    // assetsMaximum must match the vault's asset denomination:
+    //   XRP → integer drops; IOU → decimal value; MPT → integer scaled by AssetScale.
+    if (raw.assetsMaximum) {
+      if (assetType === "MPT") {
+        const valid = validateAmount(raw.assetsMaximum);
+        if (valid) vaultOptions.assetsMaximum = humanToMptUnits(valid);
+      } else if (assetType === "IOU") {
+        const valid = validateAmount(raw.assetsMaximum);
+        if (valid) vaultOptions.assetsMaximum = valid;
+      } else {
+        const valid = validateDrops(raw.assetsMaximum);
+        if (valid) vaultOptions.assetsMaximum = valid;
+      }
+    }
     let assetRecord: { currency: string; issuer?: string; mptIssuanceId?: string } = {
       currency: "XRP",
     };

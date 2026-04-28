@@ -40,6 +40,31 @@ export function validateObjectId(value: unknown): string | null {
 }
 
 /**
+ * Coerce a UINT64-shaped input (number or numeric string) to its canonical
+ * decimal-string form. Rejects non-integers, negatives, and values > 2^64-1.
+ * Use this for ledger amount fields (e.g. `DebtMaximum`) where JS Number
+ * precision (53 bits) would silently truncate large values.
+ */
+// 2^64 - 1. Built via BigInt constructor (not a literal) to keep this file
+// compatible with the ES2017 target in tsconfig.json.
+const UINT64_MAX = BigInt("18446744073709551615");
+export function validateUint64Like(value: unknown): string | null {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) return null;
+    return String(value);
+  }
+  if (typeof value !== "string") return null;
+  const s = value.trim();
+  if (!/^\d+$/.test(s)) return null;
+  try {
+    if (BigInt(s) > UINT64_MAX) return null;
+  } catch {
+    return null;
+  }
+  return s;
+}
+
+/**
  * Pick the right numeric validator based on asset type. IOU/MPT accept
  * decimal strings; XRP is always integer drops.
  */

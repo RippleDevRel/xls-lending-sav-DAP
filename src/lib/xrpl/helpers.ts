@@ -31,6 +31,28 @@ export function hasIssuedToken(issuedToken: IssuedToken | null | undefined): boo
 }
 
 /**
+ * Convert a human decimal amount to an MPT integer string scaled by
+ * `AssetScale`. Centralizes the rounding rule used at every tx boundary so
+ * a future scale change only needs editing here.
+ */
+export function humanToMptUnits(humanAmount: string): string {
+  return String(Math.round(parseFloat(humanAmount) * MPT_SCALE_MULTIPLIER));
+}
+
+/**
+ * True when an xrpl.js error came back with `entryNotFound` / `objectNotFound`,
+ * i.e. the ledger genuinely doesn't have that ledger entry. Use this to
+ * distinguish "loan/vault was deleted on chain" from "RPC connection blip"
+ * before mutating DB state.
+ */
+export function isLedgerEntryNotFound(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const data = (err as { data?: { error?: string } }).data;
+  const code = data?.error;
+  return code === "entryNotFound" || code === "objectNotFound";
+}
+
+/**
  * Build the Amount field of a transaction from a human-readable value.
  * Returns drops string for XRP, IOU object for issued currency, or MPT amount
  * with the configured AssetScale applied.
@@ -49,7 +71,7 @@ export function buildAmountField(
   }
   return {
     mpt_issuance_id: issuedToken!.mptIssuanceId!,
-    value: String(Math.round(parseFloat(humanAmount) * MPT_SCALE_MULTIPLIER)),
+    value: humanToMptUnits(humanAmount),
   };
 }
 
