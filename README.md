@@ -14,6 +14,14 @@ Built as an open-source template for fintechs, asset managers, and devs who want
   master specs; every non-obvious calculation has a spec-section reference in
   the code.
 
+## ⚠️ Disclaimer
+
+This code is provided **as is**. It has **not been audited**, there is **no
+guarantee that it will be maintained**, and it should be considered **for
+test and educational purposes only** — **not for Mainnet** or any
+deployment that handles real value. Forking and adapting it is encouraged;
+running it unmodified against live funds is not.
+
 ## Quick Start
 
 ```bash
@@ -40,7 +48,7 @@ only enabled there at the time of writing.
 ## Tech stack
 
 - **Framework** – Next.js 16 (App Router, React 19, TypeScript, Turbopack)
-- **Auth proxy** – `src/proxy.ts` (Next 16 convention, replaces `middleware`)
+- **Auth middleware** – `src/middleware.ts` (cookie gate + same-origin CSRF check)
 - **UI** – Tailwind CSS v4, shadcn/ui, Aceternity UI, Magic UI, Motion
 - **XRPL** – xrpl.js v4 (includes XLS-65/66/33 validators and flag enums)
 - **Database** – MongoDB (Mongoose) — see "On-chain vs off-chain" below
@@ -196,11 +204,12 @@ the same file is served from:
 - `GET /api/openapi` — raw YAML (or JSON with `Accept: application/json`)
 - `GET /api/docs` — Swagger UI rendering of the spec
 
-All routes are protected by `src/proxy.ts` — a valid `xls66-auth`
+All routes are protected by `src/middleware.ts` — a valid `xls66-auth`
 cookie (MongoDB ObjectId of the session) is required. `sessionId` is read
 from the cookie, never the body, so cross-session IDOR is impossible.
-Public exceptions: `POST /api/session`, `GET /api/openapi`, `GET /api/docs`,
-and the `/terms` page.
+Public exceptions (exact-match): `POST /api/session`, `POST /api/session/logout`,
+`GET /api/openapi`, `GET /api/docs`. Mutating requests are additionally
+gated by a same-origin `Origin`-header check.
 
 ### Session
 
@@ -230,7 +239,7 @@ and the `/terms` page.
 | Method   | Route            | Description                                 |
 | -------- | ---------------- | ------------------------------------------- |
 | `POST`   | `/api/broker`    | `LoanBrokerSet` + optional `LoanBrokerCoverDeposit` |
-| `DELETE` | `/api/broker`    | `LoanBrokerDelete` (caller must withdraw cover first) |
+| `DELETE` | `/api/broker`    | Auto `LoanBrokerCoverWithdraw` (if cover remains) → `LoanBrokerDelete` |
 
 ### Loan (XLS-66)
 
@@ -258,7 +267,7 @@ src/
 │       ├── vault/      (route, [id], deposit, withdraw, delete, history)
 │       ├── broker/     (route)
 │       └── loan/       (route, [id], repay, default)
-├── proxy.ts                      # Next 16 auth gate (was middleware.ts)
+├── middleware.ts                  # Auth gate + CSRF same-origin check
 ├── components/                   # Domain + UI primitives (ui/*)
 ├── hooks/use-session.ts          # Client session context
 ├── lib/
@@ -275,6 +284,7 @@ src/
 │   ├── loan-math.ts              # XLS-66 amortization / late / early-full formulas
 │   ├── constants.ts              # Network URLs, MPT scale, rate conversions, defaults
 │   ├── auth.ts                   # scrypt password + cookie helpers
+│   ├── session-public.ts         # Strip wallet seeds / passwordHash before responding
 │   ├── validation.ts             # Route-input validators
 │   ├── explorer.ts               # Devnet explorer URL helpers
 │   └── utils.ts, api-error.ts
@@ -288,31 +298,35 @@ src/
 > The four per-session wallets (broker, depositor, borrower, issuer) are
 > generated server-side and persisted **as-is** in the `Session.wallets`
 > array (see `src/lib/db/models/session.ts`: `seed`, `privateKey`,
-> `publicKey` fields). That's acceptable for a Devnet template because
+> `publicKey` fields). API responses redact `seed` / `privateKey` /
+> `passwordHash` (see `src/lib/session-public.ts:redactSession`), so the
+> client never sees them — but the server obviously does, and so does
+> anyone with DB access. That's acceptable for a Devnet template because
 > the wallets only ever hold test-net XRP / IOUs / MPTs with no monetary
 > value.
 >
 > **Before shipping any fork to production you must:**
 >
-> 1. **Never reuse these generated wallets on Testnet or Mainnet.** Seeds
->    that transit the DB, the app server, and (in the current flow) the
->    client-side session lookup should be treated as compromised.
+> 1. **Never reuse these generated wallets on Testnet or Mainnet.** Treat
+>    any seed that ever lived in this DB as compromised.
 > 2. **Replace the storage model.** Encrypt seeds at rest with a KMS
 >    (AWS KMS, Google Cloud KMS, HashiCorp Vault…), or — preferred — move
 >    wallet key material out of the server entirely: have each real user
 >    hold their own wallet in a browser extension / hardware wallet and
 >    co-sign transactions client-side. `LoanSet` already supports multi-sign
 >    via `xrpl.signLoanSetByCounterparty`.
-> 3. **Re-scope access.** The current demo exposes `session.wallets[*].seed`
->    to the authenticated client for display convenience. Any production
->    rewrite should stop returning seeds from `/api/session/me` and friends
->    altogether.
 
 - **Password storage**: scrypt + random 16-byte salt, compared with
   `timingSafeEqual`. See `src/lib/auth.ts`.
 - **Session routing**: `sessionId` always read from the httpOnly cookie,
-  never from a request body or query — `src/proxy.ts` gates every API route
-  and `requireAuthSession()` re-validates on the handler.
+  never from a request body or query — `src/middleware.ts` gates every API
+  route and `requireAuthSession()` re-validates on the handler.
+- **CSRF**: mutating requests must carry an `Origin` matching the request
+  host (enforced in `src/middleware.ts`). Server-side tools without `Origin`
+  pass through, but they need a valid auth cookie anyway.
+- **Per-row authorization**: `/api/loan/[id]` and `/api/vault/[id]` scope
+  their DB lookup by `sessionId` so authenticated callers can't read other
+  users' loan / vault records by guessing an id.
 - **Server-side validation**: every amount / number / id is validated before
   being used in a tx. See `src/lib/validation.ts`.
 - **On-chain verification**: `assertTxSuccess(result, txType)` throws on

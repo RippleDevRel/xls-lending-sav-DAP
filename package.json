@@ -2,6 +2,7 @@
   "name": "xls66-lending-app",
   "version": "0.1.0",
   "private": true,
+  "license": "ISC",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

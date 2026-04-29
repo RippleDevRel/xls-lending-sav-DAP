@@ -11,7 +11,7 @@ info:
 
     - **Auth** — cookie-based. The `POST /api/session` endpoint sets an
       httpOnly cookie `xls66-auth` whose value is the session's ObjectId.
-      Every other `/api/*` route is gated by `src/proxy.ts` and returns
+      Every other `/api/*` route is gated by `src/middleware.ts` and returns
       `401 Unauthorized` without a valid cookie.
     - **Amounts** — drops (integer string) for XRP; decimal string for IOU
       and MPT. See the README for the scaling conventions.
