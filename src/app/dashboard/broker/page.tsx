@@ -9,6 +9,7 @@ import { ManageLoans } from "./manage-loans";
 import { TransactionStatus } from "@/components/transaction-status";
 import { StepIndicator } from "@/components/step-indicator";
 import { motion, AnimatePresence } from "motion/react";
+import { Info } from "lucide-react";
 import type { LoanState } from "@/types/loan";
 
 const steps = [
@@ -16,6 +17,27 @@ const steps = [
   { label: "Issue Loan" },
   { label: "Manage" },
 ];
+
+function SingleVaultNotice() {
+  return (
+    <div className="flex gap-3 rounded-lg border bg-muted/30 p-4 text-sm">
+      <Info className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+      <div className="space-y-1.5 text-muted-foreground leading-relaxed">
+        <p className="font-medium text-foreground">Single-vault demo</p>
+        <p>
+          This demo manages one vault at a time per session. To deploy a
+          new vault you must first delete the existing one.
+        </p>
+        <p>
+          A vault can only be deleted once{" "}
+          <strong className="text-foreground">all associated loans are closed</strong>{" "}
+          (repaid or defaulted) <strong className="text-foreground">and depositors have withdrawn</strong>{" "}
+          their funds.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export default function BrokerPage() {
   const { session, refreshSession } = useSession();
@@ -117,7 +139,10 @@ export default function BrokerPage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
+          className="space-y-6"
         >
+          <SingleVaultNotice />
+
           <CreateVault
             onCreated={async (id, brokerId, txHash) => {
               setVaultId(id);
@@ -135,6 +160,8 @@ export default function BrokerPage() {
         </motion.div>
       ) : (
         <div className="space-y-8">
+          <SingleVaultNotice />
+
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
