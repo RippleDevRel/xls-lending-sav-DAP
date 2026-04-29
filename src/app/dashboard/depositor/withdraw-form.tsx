@@ -103,8 +103,8 @@ export function WithdrawForm({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       const msg = data.dustFallbackUsed
-        ? `Redeemed ~${display} ${unit} (tiny residual remains — rippled devnet limitation)`
-        : `Redeemed all shares (${display} ${unit})`;
+        ? `Withdrew ~${display} ${unit} (tiny residual remains — rippled devnet limitation)`
+        : `Withdrew all available (${display} ${unit})`;
       onSuccess(msg, data.result?.hash);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Withdrawal failed");
@@ -123,7 +123,7 @@ export function WithdrawForm({
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label htmlFor="withdraw-amount">Shares to redeem</Label>
+            <Label htmlFor="withdraw-amount">Amount to withdraw ({unit})</Label>
             {availableDisplay && (
               <span className="text-xs text-muted-foreground">
                 Available: {availableDisplay} {unit}
