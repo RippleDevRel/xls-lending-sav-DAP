@@ -79,9 +79,10 @@ export function WithdrawForm({
   }
 
   /**
-   * Redeem max: server tries the asset-denominated full-redemption path
-   * first and auto-falls back to a dust-leaving withdraw if rippled's
-   * 100%-redemption invariant fires (IOU vaults on current devnet).
+   * Redeem max: server submits an asset-denominated VaultWithdraw for the
+   * vault's current AssetsAvailable (XLS-65 §3.2.2). rippled prior to
+   * XRPLF/rippled#6955 rejects 100% redemption on IOU/MPT vaults with
+   * tecINVARIANT_FAILED — that error surfaces here until devnet upgrades.
    */
   async function handleWithdrawAll() {
     const latest = vaultAssetsAvailable || vaultAssetsTotal || "0";
@@ -102,10 +103,7 @@ export function WithdrawForm({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      const msg = data.dustFallbackUsed
-        ? `Withdrew ~${display} ${unit} (tiny residual remains — rippled devnet limitation)`
-        : `Withdrew all available (${display} ${unit})`;
-      onSuccess(msg, data.result?.hash);
+      onSuccess(`Withdrew all available (${display} ${unit})`, data.result?.hash);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Withdrawal failed");
     } finally {

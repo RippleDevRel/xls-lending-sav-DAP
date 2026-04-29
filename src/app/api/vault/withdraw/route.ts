@@ -38,8 +38,13 @@ export async function POST(request: NextRequest) {
     // current AssetsAvailable as a raw on-chain integer and pass it through
     // unchanged. rippled computes the matching share burn via the Withdraw
     // formula (§2.1.7.2.3). No client-side math → no precision drift, no
-    // dependence on share-denominated edge cases (which as of 2026-04 still
-    // trip tecINVARIANT_FAILED on full redemption).
+    // dependence on share-denominated edge cases.
+    //
+    // Known limitation: rippled prior to XRPLF/rippled#6955 (the build
+    // running on devnet at the time of writing) rejects 100% redemption on
+    // IOU/MPT vaults with tecINVARIANT_FAILED. That error is surfaced to
+    // the caller as-is — the fix belongs in rippled, not here — and the
+    // withdraw will succeed once devnet picks up the post-#6955 release.
     //
     // The demo uses a single depositor per session so AssetsAvailable maps
     // 1:1 to their share; for a multi-depositor fork this helper should
@@ -49,8 +54,6 @@ export async function POST(request: NextRequest) {
     let amount: string | Record<string, string>;
     let ledgerAmount: string;
     let preAssetsTotal: number | null = null;
-    let dustFallbackUsed = false;
-    let rawAvailable = "0";
 
     /** Builds the Amount for an asset-denominated VaultWithdraw. */
     const buildAssetAmount = (value: string): string | Record<string, string> => {
@@ -63,23 +66,10 @@ export async function POST(request: NextRequest) {
       return value; // XRP drops
     };
 
-    /** Reduce `rawAvailable` so the tx cannot empty the vault (avoids rippled
-     *  100%-redemption invariant). IOU: truncate to cents. MPT scale 2: −1
-     *  unit. XRP: −10 000 drops (= 0.01 XRP). */
-    const buildDustFallbackValue = (): string => {
-      if (issuedToken?.type === "IOU") {
-        return (Math.floor(Number(rawAvailable) * 100) / 100).toFixed(2);
-      }
-      if (issuedToken?.type === "MPT") {
-        return String(Math.max(0, Number(rawAvailable) - 1));
-      }
-      return String(Math.max(0, Number(rawAvailable) - 10_000));
-    };
-
     if (redeemAll) {
       const vaultInfo = await getVaultInfo(vaultId);
       const vaultNode = vaultInfo.result?.vault;
-      rawAvailable = String(vaultNode?.AssetsAvailable ?? "0");
+      const rawAvailable = String(vaultNode?.AssetsAvailable ?? "0");
       if (rawAvailable === "0") {
         return NextResponse.json(
           { error: "No assets available to withdraw" },
@@ -87,15 +77,6 @@ export async function POST(request: NextRequest) {
         );
       }
       preAssetsTotal = Number(vaultNode?.AssetsTotal ?? "0");
-
-      // First attempt: exact AssetsAvailable → empties the vault cleanly so
-      // VaultDelete can follow. rippled < 3.1.3 rejects 100% IOU redemption
-      // with tecINVARIANT_FAILED because the vault invariant didn't round
-      // IOU/MPT balance deltas consistently (fixed by XRPLF/rippled#6955,
-      // merged 2026-04-21). Devnet still runs the pre-fix build as of the
-      // commit date, so we catch that tec code and retry with a sub-cent
-      // dust left behind — depositor recovers their funds, VaultDelete
-      // stays unavailable until devnet picks up the new rippled release.
       amount = buildAssetAmount(rawAvailable);
       ledgerAmount = rawAvailable;
     } else if (isToken && body.tokenAmount) {
@@ -116,24 +97,8 @@ export async function POST(request: NextRequest) {
       ledgerAmount = drops;
     }
 
-    let result;
-    try {
-      const tx = buildVaultWithdraw(depositorWallet.classicAddress, vaultId, amount);
-      result = await submitTransaction(depositorWallet, tx);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (redeemAll && msg.includes("tecINVARIANT_FAILED")) {
-        // Known rippled limitation on 100% redemption. Retry with dust.
-        dustFallbackUsed = true;
-        const fallbackValue = buildDustFallbackValue();
-        amount = buildAssetAmount(fallbackValue);
-        ledgerAmount = fallbackValue;
-        const retryTx = buildVaultWithdraw(depositorWallet.classicAddress, vaultId, amount);
-        result = await submitTransaction(depositorWallet, retryTx);
-      } else {
-        throw err;
-      }
-    }
+    const tx = buildVaultWithdraw(depositorWallet.classicAddress, vaultId, amount);
+    const result = await submitTransaction(depositorWallet, tx);
 
     const snapshot = await fetchVaultSnapshot(vaultId);
 
@@ -161,7 +126,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ result: result.result, dustFallbackUsed });
+    return NextResponse.json({ result: result.result });
   } catch (error) {
     console.error("Vault withdraw error:", error);
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
