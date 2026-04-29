@@ -37,6 +37,7 @@ interface VaultOnChain {
     ShareMPTID?: string;
     shares?: {
       OutstandingAmount?: string;
+      AssetScale?: number;
       Flags?: number;
       MPTokenMetadata?: string;
     };
@@ -220,11 +221,17 @@ export default function DepositorPage() {
                   <span className="text-[11px] font-medium">Shares</span>
                 </div>
                 <span className="text-sm font-mono font-semibold">
-                  {vault?.shares?.OutstandingAmount
-                    ? isToken
-                      ? parseFloat(vault.shares.OutstandingAmount).toLocaleString()
-                      : (parseInt(vault.shares.OutstandingAmount) / 1_000_000).toFixed(2)
-                    : "0"}
+                  {(() => {
+                    const raw = vault?.shares?.OutstandingAmount;
+                    if (!raw) return "0";
+                    // Share MPT has its own AssetScale (rippled default = 6).
+                    const scale = vault?.shares?.AssetScale ?? 6;
+                    const value = Number(raw) / Math.pow(10, scale);
+                    return value.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 6,
+                    });
+                  })()}
                 </span>
               </div>
               <div className="rounded-lg border bg-muted/30 p-3 space-y-1">

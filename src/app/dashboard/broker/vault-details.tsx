@@ -44,6 +44,7 @@ interface VaultOnChain {
     ShareMPTID?: string;
     shares?: {
       OutstandingAmount?: string;
+      AssetScale?: number;
       Flags?: number;
       mpt_issuance_id?: string;
       MPTokenMetadata?: string;
@@ -207,11 +208,19 @@ export function VaultDetails({ vaultId, loanBrokerId, onDeleted }: VaultDetailsP
           } />
           <StatCard icon={<TrendingUp className="h-4 w-4" />} label="Shares Issued" value={
             <span className="text-sm font-mono font-semibold">
-              {vault?.shares?.OutstandingAmount
-                ? isTokenVault
-                  ? parseFloat(vault.shares.OutstandingAmount).toLocaleString()
-                  : (parseInt(vault.shares.OutstandingAmount) / 1_000_000).toFixed(2)
-                : "0"}
+              {(() => {
+                const raw = vault?.shares?.OutstandingAmount;
+                if (!raw) return "0";
+                // The share MPT carries its own AssetScale; rippled defaults
+                // to 6 if VaultCreate didn't override it. Divide here so the
+                // user sees circulating supply, not raw ledger units.
+                const scale = vault?.shares?.AssetScale ?? 6;
+                const value = Number(raw) / Math.pow(10, scale);
+                return value.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 6,
+                });
+              })()}
             </span>
           } />
           <StatCard icon={<Vault className="h-4 w-4" />} label="Deposit Cap" value={
