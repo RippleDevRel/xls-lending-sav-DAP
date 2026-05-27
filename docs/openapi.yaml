@@ -9,9 +9,10 @@ info:
 
     ## Conventions
 
-    - **Auth** — cookie-based. The `POST /api/session` endpoint sets an
-      httpOnly cookie `xls66-auth` whose value is the session's ObjectId.
-      Every other `/api/*` route is gated by `src/middleware.ts` and returns
+    - **Auth** — handled by Auth0 Universal Login. Clients obtain a session
+      by visiting `/auth/login` (browser only) — there is no programmatic
+      login endpoint. The session is stored in an httpOnly cookie `xls66-auth`.
+      Every `/api/*` route is gated by `src/middleware.ts` and returns
       `401 Unauthorized` without a valid cookie.
     - **Amounts** — drops (integer string) for XRP; decimal string for IOU
       and MPT. See the README for the scaling conventions.
@@ -243,48 +244,6 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
 
 paths:
-  /api/session:
-    post:
-      tags: [Session]
-      summary: Register or login
-      description: |
-        Public endpoint. On first call with an email it creates a session,
-        generates 4 wallets (broker/depositor/borrower/issuer) and funds
-        them via the devnet faucet. On subsequent calls it verifies the
-        password and restores the existing session. Sets the `xls66-auth`
-        cookie on success.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email, password]
-              properties:
-                email: { type: string, format: email, maxLength: 254 }
-                password: { type: string, minLength: 6, maxLength: 128 }
-      responses:
-        "200":
-          description: Existing session restored
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  session: { $ref: "#/components/schemas/Session" }
-        "201":
-          description: New session created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  session: { $ref: "#/components/schemas/Session" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "500": { $ref: "#/components/responses/ServerError" }
-
   /api/session/me:
     get:
       tags: [Session]
@@ -382,20 +341,6 @@ paths:
                   result: { $ref: "#/components/schemas/TxResult" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-
-  /api/session/logout:
-    post:
-      tags: [Session]
-      summary: Clear the auth cookie
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok: { type: boolean }
 
   /api/vault:
     post:
