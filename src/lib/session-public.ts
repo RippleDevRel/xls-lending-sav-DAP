@@ -1,10 +1,10 @@
 /**
- * Strip secret fields from a session document before sending it to the
- * client. Both wallet `seed` / `privateKey` and the user's `passwordHash`
- * are server-only — they must never appear in JSON responses.
+ * Strip secret fields from a UserWallets document before sending it to the
+ * client. Wallet `seed` and `privateKey` are server-only — they must never
+ * appear in JSON responses.
  *
- * The XRPL accounts are still custodial server-side, so the client never
- * needs the seeds; signing happens in API routes.
+ * The XRPL accounts are custodial server-side, so the client never needs
+ * the seeds; signing happens in API routes.
  */
 
 interface RawWallet {
@@ -16,25 +16,23 @@ interface RawWallet {
   balance?: string;
 }
 
-interface RawSession {
+interface RawUserWallets {
   _id?: unknown;
+  auth0Sub?: string;
   email?: string;
-  passwordHash?: string;
   wallets?: RawWallet[];
   vaultId?: string;
   loanBrokerId?: string;
   issuedToken?: unknown;
   createdAt?: Date;
   updatedAt?: Date;
-  toObject?: () => RawSession;
+  toObject?: () => RawUserWallets;
 }
 
 export function redactSession(doc: unknown): Record<string, unknown> {
   if (!doc || typeof doc !== "object") return {};
-  const raw = doc as RawSession;
+  const raw = doc as RawUserWallets;
   const obj = typeof raw.toObject === "function" ? raw.toObject() : { ...raw };
-
-  delete obj.passwordHash;
 
   if (Array.isArray(obj.wallets)) {
     obj.wallets = obj.wallets.map((w) => {
