@@ -1,30 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
-import { COOKIE_NAME } from "@/lib/auth";
+import { auth0 } from "@/lib/auth0";
 
 /**
- * Routes reachable without an auth cookie. Exact-match only — sub-paths of
- * /api/session (me, balances, topup, transfer) require auth and must NOT be
- * matched by a prefix rule. Per-route handlers also call `requireAuthSession`
- * for defense in depth, but middleware short-circuits before any DB work.
+ * Public API endpoints reachable without an Auth0 session. Exact-match only.
+ * The `/auth/*` namespace is implicitly public — those routes ARE the auth
+ * flow (handled by `auth0.middleware`).
  */
-const PUBLIC_PATHS = new Set([
-  "/api/session", // POST register / login
-  "/api/session/logout", // POST clear cookie (idempotent, safe pre-auth)
-  "/api/openapi", // public OpenAPI spec
-  "/api/docs", // public Swagger UI
+const PUBLIC_API_PATHS = new Set([
+  "/api/openapi",
+  "/api/docs",
 ]);
 
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+export async function middleware(request: NextRequest) {
+  // 1. Auth0 middleware runs first. It auto-mounts /auth/* routes and
+  //    refreshes the session cookie. Its response carries Set-Cookie headers
+  //    that we must propagate downstream.
+  const authRes = await auth0.middleware(request);
 
-  // CSRF: same-origin enforcement on mutating requests. Browsers always send
-  // `Origin` on cross-site fetches and on same-origin POSTs; if it's present
-  // and the host doesn't match, the request is cross-origin and we reject.
-  // Server-side tools (curl, Postman) typically don't send `Origin`, so we
-  // let those through — they'd still need a valid auth cookie, which they
-  // can only get by deliberately submitting a login.
+  // 2. Auth0-owned routes: return immediately. The OAuth callback uses PKCE
+  //    + state, so we don't apply the same-origin CSRF check to them.
+  if (request.nextUrl.pathname.startsWith("/auth")) {
+    return authRes;
+  }
+
+  // 3. CSRF: same-origin enforcement on mutating requests. Browsers always
+  //    send `Origin` on cross-site fetches and on same-origin POSTs; if it's
+  //    present and the host doesn't match, the request is cross-origin.
+  //    Server-side tools (curl, Postman) typically don't send `Origin`, so
+  //    they pass — they'd still need a valid Auth0 session cookie.
   if (UNSAFE_METHODS.has(request.method)) {
     const origin = request.headers.get("origin");
     if (origin) {
@@ -41,23 +46,35 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  if (PUBLIC_PATHS.has(pathname)) {
-    return NextResponse.next();
+  // 4. Public endpoints bypass the session gate.
+  if (PUBLIC_API_PATHS.has(request.nextUrl.pathname)) {
+    return authRes;
   }
 
-  const sessionId = request.cookies.get(COOKIE_NAME)?.value;
-  if (!sessionId) {
-    if (pathname.startsWith("/api/")) {
+  // 5. Session gate. Per-route handlers also call `getUserWallets()` for
+  //    defense in depth, but blocking here short-circuits before any DB work.
+  const session = await auth0.getSession(request);
+  if (!session) {
+    if (request.nextUrl.pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (pathname.startsWith("/dashboard")) {
+    if (request.nextUrl.pathname.startsWith("/dashboard")) {
       return NextResponse.redirect(new URL("/", request.url));
     }
   }
 
-  return NextResponse.next();
+  return authRes;
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/api/:path*"],
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization)
+     * - favicon.ico, sitemap.xml, robots.txt (metadata)
+     * - public files with file extensions
+     */
+    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\.).*)",
+  ],
 };
