@@ -87,7 +87,7 @@ export default function Home() {
                   </p>
                 </div>
 
-                <Link href="/auth/login" className="block">
+                <Link href="/auth/login?returnTo=/dashboard" className="block">
                   <ShimmerButton
                     className="w-full h-11 text-sm font-semibold"
                     shimmerColor="hsl(213, 100%, 60%)"
