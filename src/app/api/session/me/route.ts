@@ -1,31 +1,28 @@
 import { NextResponse } from "next/server";
-import { requireAuthSession } from "@/lib/auth";
-import { connectDB, SessionModel } from "@/lib/db";
+import { getOrCreateUserWallets } from "@/lib/user-wallets";
+import { UserWalletsModel } from "@/lib/db";
 import { redactSession } from "@/lib/session-public";
 
 /**
- * Lightweight session probe — returns the session document for the caller's
- * auth cookie or 401 if the cookie is missing/invalid. Does not touch XRPL.
+ * Returns the caller's UserWallets document. On the FIRST authenticated
+ * request after Auth0 signup, this is where the 4 XRPL testnet wallets are
+ * provisioned (~5–10s). Subsequent calls are a single Mongo lookup.
  */
 export async function GET() {
-  const sessionId = await requireAuthSession();
-  if (!sessionId) {
+  const userWallets = await getOrCreateUserWallets();
+  if (!userWallets) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  await connectDB();
-  const session = await SessionModel.findById(sessionId);
-  if (!session) {
-    return NextResponse.json({ error: "Session not found" }, { status: 404 });
-  }
-
   // Heal stale state: an issuedToken without a vault can only come from an
-  // earlier IOU/MPT vault that was deleted. Leaving it on the session would
+  // earlier IOU/MPT vault that was deleted. Leaving it on the record would
   // cause downstream code to mis-build Amount fields for a fresh XRP vault.
-  if (session.issuedToken && !session.vaultId) {
-    await SessionModel.findByIdAndUpdate(sessionId, { $unset: { issuedToken: 1 } });
-    session.issuedToken = undefined;
+  if (userWallets.issuedToken && !userWallets.vaultId) {
+    await UserWalletsModel.findByIdAndUpdate(userWallets._id, {
+      $unset: { issuedToken: 1 },
+    });
+    userWallets.issuedToken = undefined;
   }
 
-  return NextResponse.json({ session: redactSession(session) });
+  return NextResponse.json({ session: redactSession(userWallets) });
 }
