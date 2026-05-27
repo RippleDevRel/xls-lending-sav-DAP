@@ -1,51 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useSession } from "@/hooks/use-session";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { TextGenerateEffect } from "@/components/ui/text-generate-effect";
 import { ShimmerButton } from "@/components/ui/shimmer-button";
 import { DotPattern } from "@/components/ui/dot-pattern";
 import { BorderBeam } from "@/components/ui/border-beam";
-import { Loader2, ArrowRight, Briefcase, PiggyBank, HandCoins } from "lucide-react";
+import { ArrowRight, Briefcase, PiggyBank, HandCoins } from "lucide-react";
 import { Footer } from "@/components/footer";
 import { motion } from "motion/react";
 
-const roles = [
-  {
-    icon: Briefcase,
-    title: "Loan Broker",
-    description:
-      "Create single-asset vaults and issue uncollateralized loans to borrowers.",
-    step: "Step 1",
-  },
-  {
-    icon: PiggyBank,
-    title: "Depositor",
-    description:
-      "Deposit assets into vaults to provide liquidity and earn yield from loan interest.",
-    step: "Step 2",
-  },
-  {
-    icon: HandCoins,
-    title: "Borrower",
-    description:
-      "Accept loan offers and make periodic repayments with configurable terms.",
-    step: "Step 3",
-  },
-];
-
 export default function Home() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [emailError, setEmailError] = useState("");
-  const [passwordError, setPasswordError] = useState("");
-  const [agreed, setAgreed] = useState(false);
-  const { login, loading, initializing, session, error } = useSession();
+  const { initializing, session } = useSession();
   const router = useRouter();
 
   // Auto-redirect if already logged in
@@ -54,43 +24,6 @@ export default function Home() {
       router.push("/dashboard");
     }
   }, [initializing, session, router]);
-
-  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-
-  function validateEmail(value: string): boolean {
-    if (!value.trim()) {
-      setEmailError("Email is required");
-      return false;
-    }
-    if (value.length > 254) {
-      setEmailError("Email is too long");
-      return false;
-    }
-    if (!emailRegex.test(value.trim())) {
-      setEmailError("Please enter a valid email address");
-      return false;
-    }
-    setEmailError("");
-    return true;
-  }
-
-  function validatePassword(value: string): boolean {
-    if (value.length < 6) {
-      setPasswordError("Password must be at least 6 characters");
-      return false;
-    }
-    setPasswordError("");
-    return true;
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const emailValid = validateEmail(email);
-    const passwordValid = validatePassword(password);
-    if (!emailValid || !passwordValid) return;
-    await login(email.trim(), password);
-    router.push("/dashboard");
-  }
 
   return (
     <div className="relative flex min-h-screen flex-col bg-background overflow-hidden">
@@ -135,9 +68,9 @@ export default function Home() {
           </motion.div>
         </div>
 
-        {/* Login card + Roles */}
+        {/* Sign-in card + Roles */}
         <div className="grid gap-8 lg:grid-cols-5">
-          {/* Login — 2 cols */}
+          {/* Sign-in — 2 cols */}
           <motion.div
             className="lg:col-span-2"
             initial={{ opacity: 0, y: 20 }}
@@ -150,141 +83,76 @@ export default function Home() {
                 <div>
                   <h2 className="text-lg font-semibold mb-1">Start Demo</h2>
                   <p className="text-sm text-muted-foreground">
-                    Four wallets will be created and funded on Devnet.
+                    Sign in with your email — four wallets will be created and funded on Devnet on first login.
                   </p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="email" className="text-sm">
-                      Email
-                    </Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={(e) => {
-                        setEmail(e.target.value);
-                        if (emailError) validateEmail(e.target.value);
-                      }}
-                      onBlur={() => email && validateEmail(email)}
-                      className={`h-11 ${emailError ? "border-destructive" : ""}`}
-                      maxLength={254}
-                      required
-                    />
-                    {emailError && (
-                      <p className="text-xs text-destructive">{emailError}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="password" className="text-sm">
-                      Password
-                    </Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="Min. 6 characters"
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        if (passwordError) validatePassword(e.target.value);
-                      }}
-                      onBlur={() => password && validatePassword(password)}
-                      className={`h-11 ${passwordError ? "border-destructive" : ""}`}
-                      maxLength={128}
-                      required
-                    />
-                    {passwordError && (
-                      <p className="text-xs text-destructive">{passwordError}</p>
-                    )}
-                  </div>
-
-                  <div className="flex items-start gap-2.5">
-                    <input
-                      type="checkbox"
-                      id="agree"
-                      checked={agreed}
-                      onChange={(e) => setAgreed(e.target.checked)}
-                      className="mt-1 h-4 w-4 shrink-0 rounded border-input accent-primary"
-                    />
-                    <label htmlFor="agree" className="text-xs text-muted-foreground leading-relaxed">
-                      By using this website, you agree that the personal information
-                      you provide will be used to facilitate your use of the services
-                      within this website. For more details see our{" "}
-                      <a
-                        href="https://ripple.com/legal/privacy-policy/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline hover:text-primary transition-colors"
-                      >
-                        Privacy Policy
-                      </a>{" "}
-                      and{" "}
-                      <a
-                        href="/terms"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline hover:text-primary transition-colors"
-                      >
-                        Terms of Service
-                      </a>
-                      .
-                    </label>
-                  </div>
-
-                  {error && (
-                    <div className="rounded-lg border border-destructive/50 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                      {error}
-                    </div>
-                  )}
-
+                <Link href="/auth/login" className="block">
                   <ShimmerButton
                     className="w-full h-11 text-sm font-semibold"
                     shimmerColor="hsl(213, 100%, 60%)"
                     shimmerSize="0.1em"
                     background="hsl(213, 100%, 40%)"
-                    disabled={loading || !agreed || !password}
-                    onClick={(e) => {
-                      if (loading || !agreed || !password) {
-                        e.preventDefault();
-                        return;
-                      }
-                      handleSubmit(e as unknown as React.FormEvent);
-                    }}
                   >
-                    {loading ? (
-                      <span className="flex items-center gap-2 text-white">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Funding wallets...
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-2 text-white">
-                        Start Demo
-                        <ArrowRight className="h-4 w-4" />
-                      </span>
-                    )}
+                    <span className="flex items-center gap-2 text-white">
+                      Sign in / Sign up
+                      <ArrowRight className="h-4 w-4" />
+                    </span>
                   </ShimmerButton>
+                </Link>
 
-                  {loading && (
-                    <motion.p
-                      className="text-xs text-center text-muted-foreground"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 0.5 }}
-                    >
-                      ~20 seconds — funding 4 wallets via devnet faucet
-                    </motion.p>
-                  )}
-                </form>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  By using this website, you agree that the personal information
+                  you provide will be used to facilitate your use of the services
+                  within this website. For more details see our{" "}
+                  <a
+                    href="https://ripple.com/legal/privacy-policy/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-primary transition-colors"
+                  >
+                    Privacy Policy
+                  </a>{" "}
+                  and{" "}
+                  <a
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-primary transition-colors"
+                  >
+                    Terms of Service
+                  </a>
+                  .
+                </p>
               </CardContent>
             </Card>
           </motion.div>
 
           {/* Roles — 3 cols */}
           <div className="lg:col-span-3 flex flex-col gap-3 justify-center">
-            {roles.map((role, i) => (
+            {[
+              {
+                icon: Briefcase,
+                title: "Loan Broker",
+                description:
+                  "Create single-asset vaults and issue uncollateralized loans to borrowers.",
+                step: "Step 1",
+              },
+              {
+                icon: PiggyBank,
+                title: "Depositor",
+                description:
+                  "Deposit assets into vaults to provide liquidity and earn yield from loan interest.",
+                step: "Step 2",
+              },
+              {
+                icon: HandCoins,
+                title: "Borrower",
+                description:
+                  "Accept loan offers and make periodic repayments with configurable terms.",
+                step: "Step 3",
+              },
+            ].map((role, i) => (
               <motion.div
                 key={role.title}
                 initial={{ opacity: 0, x: 15 }}
