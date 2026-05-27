@@ -24,12 +24,13 @@ export interface IssuedToken {
 }
 
 /**
- * Shape of the session as the client receives it. `wallets` excludes
- * `seed` / `privateKey`, and `passwordHash` is omitted entirely. See
- * `lib/session-public.ts:redactSession`.
+ * Shape of the user record as the client receives it. Keyed by Auth0 `sub`.
+ * `wallets` excludes `seed` / `privateKey` (see `lib/session-public.ts:redactSession`).
+ * No `passwordHash` — Auth0 owns credentials.
  */
 export interface Session {
   _id: string;
+  auth0Sub: string;
   email: string;
   wallets: PublicWallet[];
   vaultId?: string;
