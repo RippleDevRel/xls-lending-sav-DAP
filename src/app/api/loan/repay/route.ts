@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
 import { validateAssetAmount } from "@/lib/validation";
-import { requireAuthSession } from "@/lib/auth";
-import { connectDB, SessionModel, LoanModel } from "@/lib/db";
+import { getUserWallets } from "@/lib/user-wallets";
+import { LoanModel } from "@/lib/db";
 import { buildLoanPay, getLoanInfo, LoanPayFlags } from "@/lib/xrpl/loan";
 import { submitTransaction } from "@/lib/xrpl/vault";
 import {
@@ -19,20 +19,14 @@ type PayMode = "full" | "late" | "overpayment" | "regular";
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const body = await request.json();
     const loanId = typeof body.loanId === "string" ? body.loanId.trim() : null;
     if (!loanId) {
       return NextResponse.json({ error: "Valid loanId is required" }, { status: 400 });
-    }
-
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
-    if (!session) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     const isToken = hasIssuedToken(session.issuedToken);
@@ -84,13 +78,13 @@ export async function POST(request: NextRequest) {
           : String(rawOutstanding);
         const status = remaining === 0 || rawOutstanding === 0 ? "repaid" : "active";
         await LoanModel.findOneAndUpdate(
-          { loanId, sessionId },
+          { loanId, sessionId: session._id },
           { paymentsRemaining: remaining, principalOutstanding: outstanding, status }
         );
       } else {
         // Successful response with no node → loan was deleted.
         await LoanModel.findOneAndUpdate(
-          { loanId, sessionId },
+          { loanId, sessionId: session._id },
           { paymentsRemaining: 0, principalOutstanding: "0", status: "repaid" }
         );
       }
@@ -99,7 +93,7 @@ export async function POST(request: NextRequest) {
       // Transient RPC errors must not flip the loan to "repaid".
       if (isLedgerEntryNotFound(err)) {
         await LoanModel.findOneAndUpdate(
-          { loanId, sessionId },
+          { loanId, sessionId: session._id },
           { paymentsRemaining: 0, principalOutstanding: "0", status: "repaid" }
         );
       }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { connectDB, SessionModel, LoanModel } from "@/lib/db";
+import { LoanModel } from "@/lib/db";
 import { getLoanInfo } from "@/lib/xrpl/loan";
-import { requireAuthSession } from "@/lib/auth";
+import { getUserWallets } from "@/lib/user-wallets";
 import { unscaleLoanNodeForMPT } from "@/lib/xrpl/helpers";
 
 export async function GET(
@@ -9,22 +9,20 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { id: loanId } = await params;
 
-    await connectDB();
-    // Scope by sessionId — without this, any authenticated caller could
+    // Scope by session._id — without this, any authenticated caller could
     // read another user's loan record by guessing/observing a loanId.
-    const loanDb = await LoanModel.findOne({ loanId, sessionId });
+    const loanDb = await LoanModel.findOne({ loanId, sessionId: session._id });
     if (!loanDb) {
       return NextResponse.json({ error: "Loan not found" }, { status: 404 });
     }
 
-    const session = await SessionModel.findById(sessionId);
     const isMPT = session?.issuedToken?.type === "MPT";
 
     let onLedger: unknown = null;

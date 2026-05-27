@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
-import { connectDB, SessionModel, DepositHistoryModel } from "@/lib/db";
-import { requireAuthSession } from "@/lib/auth";
+import { DepositHistoryModel } from "@/lib/db";
+import { getUserWallets } from "@/lib/user-wallets";
 import { MPT_SCALE_MULTIPLIER } from "@/lib/constants";
 
 export async function GET(request: NextRequest) {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const vaultId = request.nextUrl.searchParams.get("vaultId");
@@ -15,8 +15,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "vaultId is required" }, { status: 400 });
     }
 
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
     const isMPT = session?.issuedToken?.type === "MPT";
 
     // History entries log the ledger-scaled value (integers for MPT). Unscale
@@ -25,7 +23,7 @@ export async function GET(request: NextRequest) {
     const unscale = (s: string | undefined): string =>
       isMPT ? (Number(s || "0") / MPT_SCALE_MULTIPLIER).toString() : String(s ?? "0");
 
-    const raw = await DepositHistoryModel.find({ sessionId, vaultId })
+    const raw = await DepositHistoryModel.find({ sessionId: session._id, vaultId })
       .sort({ createdAt: -1 })
       .lean();
 

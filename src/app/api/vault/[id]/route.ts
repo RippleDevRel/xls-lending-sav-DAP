@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { connectDB, SessionModel, VaultModel } from "@/lib/db";
+import { VaultModel } from "@/lib/db";
 import { getVaultInfo } from "@/lib/xrpl/vault";
-import { requireAuthSession } from "@/lib/auth";
+import { getUserWallets } from "@/lib/user-wallets";
 import { unscaleVaultNodeForMPT } from "@/lib/xrpl/helpers";
 
 export async function GET(
@@ -9,22 +9,20 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { id: vaultId } = await params;
 
-    await connectDB();
-    // Scope by sessionId — without this, any authenticated caller could
+    // Scope by session._id — without this, any authenticated caller could
     // read another user's vault record by guessing/observing a vaultId.
-    const vaultDb = await VaultModel.findOne({ vaultId, sessionId });
+    const vaultDb = await VaultModel.findOne({ vaultId, sessionId: session._id });
     if (!vaultDb) {
       return NextResponse.json({ error: "Vault not found" }, { status: 404 });
     }
 
-    const session = await SessionModel.findById(sessionId);
     const isMPT = session?.issuedToken?.type === "MPT";
 
     let onLedger: unknown = null;

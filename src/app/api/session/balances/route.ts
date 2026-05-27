@@ -1,23 +1,13 @@
 import { NextResponse } from "next/server";
-import { connectDB, SessionModel } from "@/lib/db";
 import { getXrplClient } from "@/lib/xrpl/client";
-import { requireAuthSession } from "@/lib/auth";
+import { getUserWallets } from "@/lib/user-wallets";
 import { MPT_SCALE_MULTIPLIER } from "@/lib/constants";
 
 export async function GET() {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
+    const session = await getUserWallets();
     if (!session) {
-      return NextResponse.json(
-        { error: "Session not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const client = await getXrplClient();

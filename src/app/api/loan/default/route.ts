@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
-import { connectDB, SessionModel, LoanModel } from "@/lib/db";
+import { LoanModel } from "@/lib/db";
 import { buildLoanDelete, buildLoanManage, LoanManageFlags } from "@/lib/xrpl/loan";
 import { submitTransaction } from "@/lib/xrpl/vault";
 import { getRoleWallet } from "@/lib/xrpl/helpers";
-import { requireAuthSession } from "@/lib/auth";
+import { getUserWallets } from "@/lib/user-wallets";
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const body = await request.json();
@@ -17,12 +17,6 @@ export async function POST(request: NextRequest) {
     const action = body.action || "default"; // "default" | "close"
     if (!loanId) {
       return NextResponse.json({ error: "loanId is required" }, { status: 400 });
-    }
-
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
-    if (!session) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     const brokerWallet = getRoleWallet(session, "broker");

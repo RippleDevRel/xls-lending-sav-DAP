@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
 import { validateAssetAmount, validateNumber } from "@/lib/validation";
-import { requireAuthSession } from "@/lib/auth";
-import { connectDB, SessionModel, LoanModel } from "@/lib/db";
+import { getUserWallets } from "@/lib/user-wallets";
+import { LoanModel } from "@/lib/db";
 import { buildLoanSet, signAndSubmitLoanSet, getLoanInfo } from "@/lib/xrpl/loan";
 import {
   getRoleWallet,
@@ -30,17 +30,11 @@ const MAX_INTERVAL_SECONDS = 365 * SECONDS_PER_DAY;
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session || !session.loanBrokerId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const body = await request.json();
-
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
-    if (!session || !session.loanBrokerId) {
-      return NextResponse.json({ error: "Session or broker not found" }, { status: 404 });
-    }
 
     const brokerWallet = getRoleWallet(session, "broker");
     const borrowerWallet = getRoleWallet(session, "borrower");
@@ -142,20 +136,18 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
     const isMPT = session?.issuedToken?.type === "MPT";
     // On-ledger MPT values are integer units scaled by AssetScale; the DB/UI
     // convention is human decimals, so unscale on read-back.
     const fromLedger = (v: string | number): string =>
       isMPT ? (Number(v || 0) / MPT_SCALE_MULTIPLIER).toString() : String(v ?? "0");
 
-    const loans = await LoanModel.find({ sessionId });
+    const loans = await LoanModel.find({ sessionId: session._id });
 
     const synced = await Promise.all(
       loans.map(async (loan) => {

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
 import { validateAmount } from "@/lib/validation";
-import { requireAuthSession } from "@/lib/auth";
-import { connectDB, SessionModel } from "@/lib/db";
+import { getUserWallets } from "@/lib/user-wallets";
 import { submitTransaction } from "@/lib/xrpl/vault";
 import { getRoleWallet, buildAmountField, hasIssuedToken } from "@/lib/xrpl/helpers";
 import { DROPS_PER_XRP } from "@/lib/constants";
@@ -10,8 +9,8 @@ import type { WalletInfo } from "@/types/session";
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const body = await request.json();
@@ -31,12 +30,6 @@ export async function POST(request: NextRequest) {
         { error: "Cannot transfer to the same wallet" },
         { status: 400 }
       );
-    }
-
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
-    if (!session) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     const toWallet = session.wallets.find((w: WalletInfo) => w.role === to);

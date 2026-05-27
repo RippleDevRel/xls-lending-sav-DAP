@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
-import { connectDB, SessionModel } from "@/lib/db";
+import { UserWalletsModel } from "@/lib/db";
 import {
   buildLoanBrokerSet,
   buildLoanBrokerDelete,
@@ -16,24 +16,18 @@ import {
   hasIssuedToken,
 } from "@/lib/xrpl/helpers";
 import { validateNumber, validateAssetAmount, validateUint64Like } from "@/lib/validation";
-import { requireAuthSession } from "@/lib/auth";
+import { getUserWallets } from "@/lib/user-wallets";
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const body = await request.json();
     const vaultId = typeof body.vaultId === "string" ? body.vaultId.trim() : null;
     if (!vaultId) {
       return NextResponse.json({ error: "vaultId is required" }, { status: 400 });
-    }
-
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
-    if (!session) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     const brokerWallet = getRoleWallet(session, "broker");
@@ -61,7 +55,7 @@ export async function POST(request: NextRequest) {
     const loanBrokerId = extractCreatedLedgerId(result, "LoanBroker");
 
     if (loanBrokerId) {
-      await SessionModel.findByIdAndUpdate(sessionId, { loanBrokerId });
+      await UserWalletsModel.findByIdAndUpdate(session._id, { loanBrokerId });
 
       // First-loss cover must be denominated in the vault's asset, otherwise
       // the ledger returns tecWRONG_ASSET.
@@ -89,15 +83,9 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE() {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
+    const session = await getUserWallets();
     if (!session || !session.loanBrokerId) {
-      return NextResponse.json({ error: "Session or broker not found" }, { status: 404 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const brokerWallet = getRoleWallet(session, "broker");
@@ -130,7 +118,7 @@ export async function DELETE() {
     const tx = buildLoanBrokerDelete(brokerWallet.classicAddress, session.loanBrokerId);
     const result = await submitTransaction(brokerWallet, tx);
 
-    await SessionModel.findByIdAndUpdate(sessionId, {
+    await UserWalletsModel.findByIdAndUpdate(session._id, {
       $unset: { loanBrokerId: 1 },
     });
 

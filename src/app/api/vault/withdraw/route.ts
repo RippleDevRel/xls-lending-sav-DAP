@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
 import { validateDrops } from "@/lib/validation";
-import { requireAuthSession } from "@/lib/auth";
-import { connectDB, SessionModel, VaultModel, DepositHistoryModel } from "@/lib/db";
+import { getUserWallets } from "@/lib/user-wallets";
+import { VaultModel, DepositHistoryModel } from "@/lib/db";
 import { buildVaultWithdraw, submitTransaction, getVaultInfo } from "@/lib/xrpl/vault";
 import {
   getRoleWallet,
@@ -14,20 +14,14 @@ import {
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const body = await request.json();
     const vaultId = typeof body.vaultId === "string" ? body.vaultId.trim() : null;
     if (!vaultId) {
       return NextResponse.json({ error: "vaultId is required" }, { status: 400 });
-    }
-
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
-    if (!session) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     const depositorWallet = getRoleWallet(session, "depositor");
@@ -112,7 +106,7 @@ export async function POST(request: NextRequest) {
 
     const txHash = (result.result as unknown as Record<string, unknown>).hash as string;
     await DepositHistoryModel.create({
-      sessionId,
+      sessionId: session._id,
       vaultId,
       type: "withdraw",
       amountDrops: ledgerAmount,
@@ -121,7 +115,7 @@ export async function POST(request: NextRequest) {
 
     if (snapshot) {
       await VaultModel.findOneAndUpdate(
-        { vaultId, sessionId },
+        { vaultId, sessionId: session._id },
         { totalDeposited: snapshot.assetsTotal, sharesMinted: snapshot.sharesMinted }
       );
     }

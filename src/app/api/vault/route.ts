@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
-import { connectDB, SessionModel, VaultModel } from "@/lib/db";
+import { UserWalletsModel, VaultModel } from "@/lib/db";
 import {
   buildVaultCreate,
   submitTransaction,
@@ -15,12 +15,12 @@ import {
   humanToMptUnits,
 } from "@/lib/xrpl/helpers";
 import { validateDrops, validateAmount, sanitizeString } from "@/lib/validation";
-import { requireAuthSession } from "@/lib/auth";
+import { getUserWallets } from "@/lib/user-wallets";
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const body = await request.json();
@@ -30,12 +30,6 @@ export async function POST(request: NextRequest) {
     if (raw.name) vaultOptions.name = sanitizeString(raw.name, 64);
     if (raw.website) vaultOptions.website = sanitizeString(raw.website, 128);
     if (raw.nonTransferableShares) vaultOptions.nonTransferableShares = true;
-
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
-    if (!session) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
 
     const brokerWallet = getRoleWallet(session, "broker");
 
@@ -61,7 +55,7 @@ export async function POST(request: NextRequest) {
 
     // XRP vault: make sure no prior issuedToken lingers on the session.
     if (assetType !== "IOU" && assetType !== "MPT") {
-      await SessionModel.findByIdAndUpdate(sessionId, { $unset: { issuedToken: 1 } });
+      await UserWalletsModel.findByIdAndUpdate(session._id, { $unset: { issuedToken: 1 } });
     }
 
     if (assetType === "IOU" || assetType === "MPT") {
@@ -73,14 +67,14 @@ export async function POST(request: NextRequest) {
         const iou = await setupIOU(issuerWallet, brokerWallet, depositorWallet, borrowerWallet);
         vaultOptions.asset = { type: "IOU", currency: iou.currency, issuer: iou.issuer };
         assetRecord = { currency: iou.currency, issuer: iou.issuer };
-        await SessionModel.findByIdAndUpdate(sessionId, {
+        await UserWalletsModel.findByIdAndUpdate(session._id, {
           issuedToken: { type: "IOU", currency: iou.currency, issuer: iou.issuer },
         });
       } else {
         const mpt = await setupMPT(issuerWallet, brokerWallet, depositorWallet, borrowerWallet);
         vaultOptions.asset = { type: "MPT", mptIssuanceId: mpt.mptIssuanceId };
         assetRecord = { currency: "TUSD", mptIssuanceId: mpt.mptIssuanceId };
-        await SessionModel.findByIdAndUpdate(sessionId, {
+        await UserWalletsModel.findByIdAndUpdate(session._id, {
           issuedToken: { type: "MPT", mptIssuanceId: mpt.mptIssuanceId },
         });
       }
@@ -117,7 +111,7 @@ export async function POST(request: NextRequest) {
       status: "active",
     });
 
-    await SessionModel.findByIdAndUpdate(sessionId, { vaultId });
+    await UserWalletsModel.findByIdAndUpdate(session._id, { vaultId });
 
     return NextResponse.json({ vault, result: result.result }, { status: 201 });
   } catch (error) {
@@ -128,15 +122,13 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
+    const session = await getUserWallets();
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
     const isMPT = session?.issuedToken?.type === "MPT";
-    const vaults = await VaultModel.find({ sessionId, status: "active" });
+    const vaults = await VaultModel.find({ sessionId: session._id, status: "active" });
 
     const enriched = await Promise.all(
       vaults.map(async (v) => {

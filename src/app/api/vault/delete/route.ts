@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/api-error";
-import { connectDB, SessionModel, VaultModel, LoanModel } from "@/lib/db";
+import { UserWalletsModel, VaultModel, LoanModel } from "@/lib/db";
 import { buildVaultDelete, submitTransaction, getVaultInfo } from "@/lib/xrpl/vault";
 import { buildLoanBrokerDelete, buildLoanBrokerCoverWithdraw } from "@/lib/xrpl/broker";
 import {
@@ -10,7 +10,7 @@ import {
   getLoanInfo,
 } from "@/lib/xrpl/loan";
 import { getRoleWallet, buildAmountField, hasIssuedToken } from "@/lib/xrpl/helpers";
-import { requireAuthSession } from "@/lib/auth";
+import { getUserWallets } from "@/lib/user-wallets";
 
 /**
  * Full teardown sequence required by XLS-66 / XLS-65:
@@ -20,15 +20,9 @@ import { requireAuthSession } from "@/lib/auth";
  */
 export async function POST() {
   try {
-    const sessionId = await requireAuthSession();
-    if (!sessionId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    await connectDB();
-    const session = await SessionModel.findById(sessionId);
+    const session = await getUserWallets();
     if (!session || !session.vaultId) {
-      return NextResponse.json({ error: "Session or vault not found" }, { status: 404 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const brokerWallet = getRoleWallet(session, "broker");
@@ -56,7 +50,7 @@ export async function POST() {
       // vault_info failed — proceed, VaultDelete will fail later if truly blocked.
     }
 
-    const allLoans = await LoanModel.find({ sessionId, status: { $ne: "closed" } });
+    const allLoans = await LoanModel.find({ sessionId: session._id, status: { $ne: "closed" } });
     for (const loan of allLoans) {
       try {
         const info = await getLoanInfo(loan.loanId);
@@ -132,7 +126,7 @@ export async function POST() {
     );
     // Clear issuedToken along with vaultId — the IOU/MPT context belongs to the
     // deleted vault and would be stale for any replacement XRP vault.
-    await SessionModel.findByIdAndUpdate(sessionId, {
+    await UserWalletsModel.findByIdAndUpdate(session._id, {
       $unset: { vaultId: 1, loanBrokerId: 1, issuedToken: 1 },
     });
 
