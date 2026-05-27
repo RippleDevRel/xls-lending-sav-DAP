@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { useSession } from "@/hooks/use-session";
 import { SessionHeader } from "@/components/session-header";
 import { RoleTabs } from "@/components/role-tabs";
@@ -15,7 +16,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { session, initializing } = useSession();
+  const { session, initializing, provisioning } = useSession();
   const router = useRouter();
 
   useEffect(() => {
@@ -26,14 +27,32 @@ export default function DashboardLayout({
 
   if (initializing) {
     return (
-      <div className="min-h-screen bg-background">
-        <div className="container mx-auto px-6 py-8 max-w-5xl space-y-6">
-          <Skeleton className="h-20 w-full rounded-xl" />
-          <Skeleton className="h-14 w-full rounded-xl" />
-          <div className="grid gap-6 md:grid-cols-2">
-            <Skeleton className="h-48 rounded-xl" />
-            <Skeleton className="h-48 rounded-xl" />
-          </div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="container mx-auto px-6 py-8 max-w-md text-center space-y-6">
+          {provisioning ? (
+            <>
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold mb-2">
+                  Setting up your demo wallets
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Funding 4 wallets on Devnet — this takes about 10 seconds on first login.
+                </p>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-6">
+              <Skeleton className="h-20 w-full rounded-xl" />
+              <Skeleton className="h-14 w-full rounded-xl" />
+              <div className="grid gap-6 md:grid-cols-2">
+                <Skeleton className="h-48 rounded-xl" />
+                <Skeleton className="h-48 rounded-xl" />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
