@@ -25,25 +25,51 @@ running it unmodified against live funds is not.
 ## Quick Start
 
 ```bash
-cp .env.example .env.local              # then edit MONGODB_URI
+cp .env.example .env.local              # then edit MONGODB_URI and Auth0 credentials
 npm install
 npm run dev                              # http://localhost:3000
 ```
 
-Log in with any email/password. On first login the server generates four
-wallets (broker, depositor, borrower, issuer), funds them via the devnet
-faucet, and persists seeds in MongoDB for the session.
+Sign up or log in via Auth0 Universal Login. On first authenticated request
+the server generates four wallets (broker, depositor, borrower, issuer),
+funds them via the devnet faucet, and persists seeds in MongoDB for the
+session.
 
 ## Environment variables
 
-| Variable           | Default                                              | Purpose                                   |
-| ------------------ | ---------------------------------------------------- | ----------------------------------------- |
-| `XRPL_NETWORK_URL` | `wss://s.devnet.rippletest.net:51233/`               | WebSocket endpoint                |
-| `XRPL_FAUCET_URL`  | `https://faucet.devnet.rippletest.net/accounts`      | Devnet faucet                             |
-| `MONGODB_URI`      | *(required, no default)*                             | Full MongoDB connection string            |
+| Variable             | Default                                              | Purpose                                   |
+| -------------------- | ---------------------------------------------------- | ----------------------------------------- |
+| `XRPL_NETWORK_URL`   | `wss://s.devnet.rippletest.net:51233/`               | WebSocket endpoint                |
+| `XRPL_FAUCET_URL`    | `https://faucet.devnet.rippletest.net/accounts`      | Devnet faucet                             |
+| `MONGODB_URI`        | *(required, no default)*                             | Full MongoDB connection string            |
+| `AUTH0_SECRET`       | *(required, no default)*                             | Secret for Auth0 session encryption       |
+| `AUTH0_DOMAIN`       | *(required, no default)*                             | Auth0 tenant domain (e.g., `tenant.auth0.com`) |
+| `AUTH0_CLIENT_ID`    | *(required, no default)*                             | Auth0 application Client ID               |
+| `AUTH0_CLIENT_SECRET`| *(required, no default)*                             | Auth0 application Client Secret           |
+| `APP_BASE_URL`       | `http://localhost:3000`                              | Application base URL (used in redirects)  |
 
 See `.env.example`. Network and faucet default to Devnet because XLS-66/65 are
 only enabled there at the time of writing.
+
+### Auth0 Setup
+
+This demo uses Auth0 Universal Login. To run it locally you need an Auth0
+tenant and a Regular Web Application.
+
+1. Sign up at https://auth0.com and create a new tenant (free tier is fine).
+2. **Applications → Create Application** → "Regular Web Application".
+3. In the application **Settings**:
+   - Allowed Callback URLs: `http://localhost:3000/auth/callback`
+   - Allowed Logout URLs: `http://localhost:3000`
+   - Allowed Web Origins: `http://localhost:3000`
+4. **Authentication → Database → Username-Password-Authentication → Settings**:
+   - Enable "Requires Verified Email"
+   - Set Password Policy to "Good" or stronger
+5. **Authentication → Social**: disable all social connections (email-only
+   for this demo).
+6. Copy the application Domain, Client ID, and Client Secret into
+   `.env.local` (see `.env.example`).
+7. Generate `AUTH0_SECRET` with `openssl rand -hex 32` and add it to `.env.local`.
 
 ## Tech stack
 
@@ -189,7 +215,7 @@ step surfaces as `tecHAS_OBLIGATIONS`.
 ## User flow
 
 ```
-Login (email) → 4 wallets created + faucet-funded
+Sign in / Sign up (Auth0 Universal Login) → Email verified → 4 wallets created + faucet-funded
  ├── Broker    → Create vault → Register broker (+ first-loss cover) → Issue loan → Manage / default
  ├── Depositor → Deposit → Track PNL → Withdraw
  └── Borrower  → View loan → Make payment (installment / late / full / overpayment / custom)
@@ -205,22 +231,23 @@ the same file is served from:
 - `GET /api/docs` — Swagger UI rendering of the spec
 
 All routes are protected by `src/middleware.ts` — a valid `xls66-auth`
-cookie (MongoDB ObjectId of the session) is required. `sessionId` is read
-from the cookie, never the body, so cross-session IDOR is impossible.
-Public exceptions (exact-match): `POST /api/session`, `POST /api/session/logout`,
+cookie (Auth0 session ID) is required. `sessionId` is read from the cookie,
+never the body, so cross-session IDOR is impossible. Public exceptions
+(exact-match): `GET /auth/login`, `GET /auth/callback`, `GET /auth/logout`,
 `GET /api/openapi`, `GET /api/docs`. Mutating requests are additionally
 gated by a same-origin `Origin`-header check.
 
-### Session
+### Session & Auth
 
 | Method   | Route                     | Description                                     |
 | -------- | ------------------------- | ----------------------------------------------- |
-| `POST`   | `/api/session`            | Register or login (scrypt-verified)             |
+| `GET`    | `/auth/login`             | Redirect to Auth0 Universal Login               |
+| `GET`    | `/auth/callback`          | Auth0 callback; provisioning happens here       |
+| `GET`    | `/auth/logout`            | Federated logout (clear Auth0 + local session)  |
 | `GET`    | `/api/session/me`         | Cookie-only probe; no ledger roundtrip          |
 | `GET`    | `/api/session/balances`   | XRP + IOU + MPT balances for each role          |
 | `POST`   | `/api/session/topup`      | Re-fund every role from the devnet faucet       |
 | `POST`   | `/api/session/transfer`   | Peer transfer between role wallets              |
-| `POST`   | `/api/session/logout`     | Clear cookie                                    |
 
 ### Vault (XLS-65)
 
@@ -316,11 +343,12 @@ src/
 >    co-sign transactions client-side. `LoanSet` already supports multi-sign
 >    via `xrpl.signLoanSetByCounterparty`.
 
-- **Password storage**: scrypt + random 16-byte salt, compared with
-  `timingSafeEqual`. See `src/lib/auth.ts`.
+- **Authentication**: delegated to Auth0 via Universal Login. Passwords are
+  managed by Auth0 and never stored in this application. Session `sessionId`
+  is the Auth0 user's `sub` claim.
 - **Session routing**: `sessionId` always read from the httpOnly cookie,
   never from a request body or query — `src/middleware.ts` gates every API
-  route and `requireAuthSession()` re-validates on the handler.
+  route and verifies the cookie's Auth0 origin via ID token validation.
 - **CSRF**: mutating requests must carry an `Origin` matching the request
   host (enforced in `src/middleware.ts`). Server-side tools without `Origin`
   pass through, but they need a valid auth cookie anyway.
