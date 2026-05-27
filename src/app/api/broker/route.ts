@@ -84,8 +84,11 @@ export async function POST(request: NextRequest) {
 export async function DELETE() {
   try {
     const session = await getUserWallets();
-    if (!session || !session.loanBrokerId) {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!session.loanBrokerId) {
+      return NextResponse.json({ error: "No broker registered" }, { status: 404 });
     }
 
     const brokerWallet = getRoleWallet(session, "broker");

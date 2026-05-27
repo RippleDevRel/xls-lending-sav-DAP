@@ -74,6 +74,10 @@ export function useSessionProvider(): SessionContextValue {
 
   const refreshSession = useCallback(async () => {
     const res = await fetch("/api/session/me");
+    if (res.status === 401) {
+      setSession(null);
+      return;
+    }
     if (res.ok) {
       const data = await res.json();
       setSession(data.session);

@@ -2,7 +2,7 @@ import mongoose, { Schema } from "mongoose";
 
 const vaultSchema = new Schema(
   {
-    sessionId: { type: Schema.Types.ObjectId, ref: "Session", required: true },
+    sessionId: { type: Schema.Types.ObjectId, ref: "UserWallets", required: true },
     vaultId: { type: String, required: true, unique: true },
     ownerAddress: { type: String, required: true },
     asset: {

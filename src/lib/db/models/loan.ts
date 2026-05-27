@@ -2,7 +2,7 @@ import mongoose, { Schema } from "mongoose";
 
 const loanSchema = new Schema(
   {
-    sessionId: { type: Schema.Types.ObjectId, ref: "Session", required: true },
+    sessionId: { type: Schema.Types.ObjectId, ref: "UserWallets", required: true },
     loanId: { type: String, required: true, unique: true },
     loanBrokerId: { type: String, required: true },
     borrowerAddress: { type: String, required: true },

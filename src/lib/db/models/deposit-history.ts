@@ -2,7 +2,7 @@ import mongoose, { Schema } from "mongoose";
 
 const depositHistorySchema = new Schema(
   {
-    sessionId: { type: Schema.Types.ObjectId, ref: "Session", required: true },
+    sessionId: { type: Schema.Types.ObjectId, ref: "UserWallets", required: true },
     vaultId: { type: String, required: true },
     type: { type: String, enum: ["deposit", "withdraw"], required: true },
     amountDrops: { type: String, required: true },

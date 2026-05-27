@@ -31,8 +31,11 @@ const MAX_INTERVAL_SECONDS = 365 * SECONDS_PER_DAY;
 export async function POST(request: NextRequest) {
   try {
     const session = await getUserWallets();
-    if (!session || !session.loanBrokerId) {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!session.loanBrokerId) {
+      return NextResponse.json({ error: "No broker registered" }, { status: 404 });
     }
     const body = await request.json();
 
