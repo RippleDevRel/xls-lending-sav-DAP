@@ -11,20 +11,19 @@ import type { Session } from "@/types/session";
 
 interface SessionContextValue {
   session: Session | null;
-  loading: boolean;
   initializing: boolean;
+  /** True while /api/session/me is in flight on first authenticated load. */
+  provisioning: boolean;
   error: string | null;
-  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   refreshSession: () => Promise<void>;
 }
 
 export const SessionContext = createContext<SessionContextValue>({
   session: null,
-  loading: false,
   initializing: true,
+  provisioning: false,
   error: null,
-  login: async () => {},
   logout: () => {},
   refreshSession: async () => {},
 });
@@ -35,20 +34,31 @@ export function useSession() {
 
 export function useSessionProvider(): SessionContextValue {
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const [provisioning, setProvisioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchSession = useCallback(async () => {
-    // /api/session/me is a lightweight cookie probe — no XRPL roundtrip.
-    const res = await fetch("/api/session/me");
-    if (res.status === 401) {
-      localStorage.removeItem("xls66-email");
-      return;
-    }
-    if (res.ok) {
-      const data = await res.json();
-      setSession(data.session);
+    // Mark provisioning if the call takes longer than 2s — first-login
+    // provisioning runs the testnet faucet 4× and takes ~5–10s.
+    const provisioningTimer = setTimeout(() => setProvisioning(true), 2000);
+    try {
+      const res = await fetch("/api/session/me");
+      if (res.status === 401) {
+        setSession(null);
+        return;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        setSession(data.session);
+      } else {
+        setError(`Failed to load session (HTTP ${res.status})`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      clearTimeout(provisioningTimer);
+      setProvisioning(false);
     }
   }, []);
 
@@ -56,30 +66,10 @@ export function useSessionProvider(): SessionContextValue {
     fetchSession().finally(() => setInitializing(false));
   }, [fetchSession]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to create session");
-      localStorage.setItem("xls66-email", email);
-      setSession(data.session);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const logout = useCallback(async () => {
-    await fetch("/api/session/logout", { method: "POST" });
-    localStorage.removeItem("xls66-email");
-    setSession(null);
+  const logout = useCallback(() => {
+    // Federated logout: SDK clears the local cookie, then bounces to the
+    // Auth0 logout endpoint to clear the IdP session, then back to /.
+    window.location.href = "/auth/logout";
   }, []);
 
   const refreshSession = useCallback(async () => {
@@ -90,5 +80,5 @@ export function useSessionProvider(): SessionContextValue {
     }
   }, []);
 
-  return { session, loading, initializing, error, login, logout, refreshSession };
+  return { session, initializing, provisioning, error, logout, refreshSession };
 }
