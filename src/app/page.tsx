@@ -2,7 +2,6 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { useSession } from "@/hooks/use-session";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Card, CardContent } from "@/components/ui/card";
@@ -87,7 +86,7 @@ export default function Home() {
                   </p>
                 </div>
 
-                <Link href="/auth/login?returnTo=/dashboard" className="block">
+                <a href="/auth/login?returnTo=/dashboard" className="block">
                   <ShimmerButton
                     className="w-full h-11 text-sm font-semibold"
                     shimmerColor="hsl(213, 100%, 60%)"
@@ -99,7 +98,7 @@ export default function Home() {
                       <ArrowRight className="h-4 w-4" />
                     </span>
                   </ShimmerButton>
-                </Link>
+                </a>
 
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   By using this website, you agree that the personal information
