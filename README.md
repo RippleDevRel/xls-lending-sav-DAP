@@ -383,4 +383,4 @@ src/
 
 ## License
 
-ISC
+Apache 2.0
