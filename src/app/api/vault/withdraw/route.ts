@@ -34,11 +34,14 @@ export async function POST(request: NextRequest) {
     // formula (§2.1.7.2.3). No client-side math → no precision drift, no
     // dependence on share-denominated edge cases.
     //
-    // Known limitation: rippled prior to XRPLF/rippled#6955 (the build
-    // running on devnet at the time of writing) rejects 100% redemption on
-    // IOU/MPT vaults with tecINVARIANT_FAILED. That error is surfaced to
-    // the caller as-is — the fix belongs in rippled, not here — and the
-    // withdraw will succeed once devnet picks up the post-#6955 release.
+    // Known rippled limitation (XRPLF/rippled#6955): on the pre-fix build
+    // running on devnet, the vault invariant rounds IOU/MPT balance deltas
+    // inconsistently with the operation itself. Any VaultWithdraw whose
+    // delta lands on a non-canonical IOU mantissa can fail with
+    // tecINVARIANT_FAILED — full redemption is the most reliable trigger
+    // but partial withdraws of "ordinary" amounts (e.g. 50% of an IOU
+    // vault) also hit it. The error is surfaced as-is; the fix is in
+    // rippled and lands once devnet picks up the post-#6955 release.
     //
     // The demo uses a single depositor per session so AssetsAvailable maps
     // 1:1 to their share; for a multi-depositor fork this helper should
