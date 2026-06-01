@@ -20,8 +20,6 @@ import {
   Loader2,
   Send,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
-
 import { DROPS_PER_XRP } from "@/lib/constants";
 
 const roleConfig = {
@@ -51,7 +49,6 @@ const roles = ["broker", "depositor", "borrower", "issuer"] as const;
 
 export function SessionHeader() {
   const { session, logout } = useSession();
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [balances, setBalances] = useState<
     Record<string, string> | null
@@ -101,11 +98,6 @@ export function SessionHeader() {
   }, [open, balances, fetchBalances]);
 
   if (!session) return null;
-
-  function handleLogout() {
-    logout();
-    router.push("/");
-  }
 
   function formatXrp(drops: string) {
     return (parseInt(drops) / DROPS_PER_XRP).toLocaleString(undefined, {
@@ -389,7 +381,7 @@ export function SessionHeader() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={handleLogout}
+          onClick={logout}
           className="text-muted-foreground h-8 w-8"
         >
           <LogOut className="h-3.5 w-3.5" />
