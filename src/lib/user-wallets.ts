@@ -3,11 +3,10 @@ import { connectDB, UserWalletsModel } from "./db";
 import { generateAndFundWallet } from "./xrpl/wallet";
 
 /**
- * Server-side chokepoint replacing the old `requireAuthSession()` for the
- * `/api/session/me` route. Looks up the UserWallets document by Auth0 `sub`.
- * If absent (first login after Auth0 signup), provisions 4 funded XRPL
- * testnet wallets and inserts the document. Handles the first-login race
- * by catching the unique-index duplicate-key error.
+ * Looks up the UserWallets document for the current Auth0 session by `sub`.
+ * If absent (first login after Auth0 signup), provisions 4 funded XRPL testnet
+ * wallets and inserts the document. Handles the first-login race by catching
+ * the unique-index duplicate-key error.
  *
  * Returns the full document (with seeds) — the route handler is responsible
  * for redacting before sending to the client.
