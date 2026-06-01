@@ -26,7 +26,6 @@ export interface IssuedToken {
 /**
  * Shape of the user record as the client receives it. Keyed by Auth0 `sub`.
  * `wallets` excludes `seed` / `privateKey` (see `lib/session-public.ts:redactSession`).
- * No `passwordHash` — Auth0 owns credentials.
  */
 export interface Session {
   _id: string;

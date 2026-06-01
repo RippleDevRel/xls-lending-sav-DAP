@@ -110,9 +110,9 @@ to bridge HTTP requests between transactions.
 
 | Collection       | Role                                                                                  |
 | ---------------- | ------------------------------------------------------------------------------------- |
-| `Session`        | Email, password hash (scrypt), generated wallet seeds, current `vaultId` / `loanBrokerId` / `issuedToken` discriminator. **Seeds never leave the server.** |
-| `Vault`          | Session ↔ `vaultId` mapping + asset record + cached `totalDeposited` / `sharesMinted`. Refreshed from `vault_info` on read. |
-| `Loan`           | Session ↔ `loanId` mapping + immutable loan terms (copied from the `LoanSet` payload at origination) + cached `paymentsRemaining` / `principalOutstanding` / `status`. |
+| `UserWallets`    | Auth0 `sub`, cached email, generated wallet seeds, current `vaultId` / `loanBrokerId` / `issuedToken` discriminator. **Seeds never leave the server.** Credentials are owned by Auth0; this collection holds no password material. |
+| `Vault`          | User ↔ `vaultId` mapping + asset record + cached `totalDeposited` / `sharesMinted`. Refreshed from `vault_info` on read. |
+| `Loan`           | User ↔ `loanId` mapping + immutable loan terms (copied from the `LoanSet` payload at origination) + cached `paymentsRemaining` / `principalOutstanding` / `status`. |
 | `DepositHistory` | Audit trail of every `VaultDeposit` / `VaultWithdraw`, with tx hash, amount, type, timestamp. Used for PNL in the depositor view. |
 
 **MongoDB is never the source of truth for balances or state** — every
@@ -230,12 +230,13 @@ the same file is served from:
 - `GET /api/openapi` — raw YAML (or JSON with `Accept: application/json`)
 - `GET /api/docs` — Swagger UI rendering of the spec
 
-All routes are protected by `src/middleware.ts` — a valid `xls66-auth`
-cookie (Auth0 session ID) is required. `sessionId` is read from the cookie,
-never the body, so cross-session IDOR is impossible. Public exceptions
-(exact-match): `GET /auth/login`, `GET /auth/callback`, `GET /auth/logout`,
-`GET /api/openapi`, `GET /api/docs`. Mutating requests are additionally
-gated by a same-origin `Origin`-header check.
+All routes are protected by `src/middleware.ts` — the Auth0 SDK session
+cookie is required. The caller's identity (`auth0Sub`) is resolved from the
+cookie by the SDK, never from the request body or query, so cross-session
+IDOR is impossible. Public exceptions (exact-match): `GET /auth/login`,
+`GET /auth/callback`, `GET /auth/logout`, `GET /api/openapi`,
+`GET /api/docs`. Mutating requests are additionally gated by a same-origin
+`Origin`-header check.
 
 ### Session & Auth
 
@@ -289,14 +290,15 @@ src/
 │   │   ├── broker/     (create-vault, vault-details, issue-loan, manage-loans, actions.ts)
 │   │   ├── depositor/  (deposit-form, withdraw-form, history)
 │   │   └── borrower/   (repayment, loan-history)
+│   ├── auth/                # Auth0 SDK v4 mounts /auth/login, /callback, /logout via middleware (no Route Handler file)
 │   └── api/
-│       ├── session/    (route, me, balances, topup, transfer, logout)
+│       ├── session/    (me, balances, topup, transfer)
 │       ├── vault/      (route, [id], deposit, withdraw, delete, history)
 │       ├── broker/     (route)
 │       └── loan/       (route, [id], repay, default)
-├── middleware.ts                  # Auth gate + CSRF same-origin check
+├── middleware.ts                  # Auth0 SDK middleware + same-origin CSRF check
 ├── components/                   # Domain + UI primitives (ui/*)
-├── hooks/use-session.ts          # Client session context
+├── hooks/use-session.ts          # Client session context (federated logout via /auth/logout)
 ├── lib/
 │   ├── xrpl/                     # ALL XRPL interaction lives here
 │   │   ├── client.ts             # Connection singleton
@@ -310,27 +312,27 @@ src/
 │   ├── db/                       # Mongoose models + pooled connection
 │   ├── loan-math.ts              # XLS-66 amortization / late / early-full formulas
 │   ├── constants.ts              # Network URLs, MPT scale, rate conversions, defaults
-│   ├── auth.ts                   # scrypt password + cookie helpers
-│   ├── session-public.ts         # Strip wallet seeds / passwordHash before responding
+│   ├── auth0.ts                  # Auth0 SDK client singleton
+│   ├── user-wallets.ts           # getOrCreateUserWallets / getUserWallets server helpers
+│   ├── session-public.ts         # Strip wallet seeds before responding
 │   ├── validation.ts             # Route-input validators
 │   ├── explorer.ts               # Devnet explorer URL helpers
 │   └── utils.ts, api-error.ts
-└── types/                        # Session, Vault, Loan shared types
+└── types/                        # Session (renamed to UserWallets in DB), Vault, Loan shared types
 ```
 
 ## Security notes
 
 > ### ⚠️ Wallet seeds are stored in **plaintext** in MongoDB
 >
-> The four per-session wallets (broker, depositor, borrower, issuer) are
-> generated server-side and persisted **as-is** in the `Session.wallets`
-> array (see `src/lib/db/models/session.ts`: `seed`, `privateKey`,
-> `publicKey` fields). API responses redact `seed` / `privateKey` /
-> `passwordHash` (see `src/lib/session-public.ts:redactSession`), so the
-> client never sees them — but the server obviously does, and so does
-> anyone with DB access. That's acceptable for a Devnet template because
-> the wallets only ever hold test-net XRP / IOUs / MPTs with no monetary
-> value.
+> The four per-user wallets (broker, depositor, borrower, issuer) are
+> generated server-side and persisted **as-is** in the `UserWallets.wallets`
+> array (see `src/lib/db/models/user-wallets.ts`: `seed`, `privateKey`,
+> `publicKey` fields). API responses redact `seed` / `privateKey`
+> (see `src/lib/session-public.ts:redactSession`), so the client never sees
+> them — but the server obviously does, and so does anyone with DB access.
+> That's acceptable for a Devnet template because the wallets only ever
+> hold test-net XRP / IOUs / MPTs with no monetary value.
 >
 > **Before shipping any fork to production you must:**
 >
@@ -343,18 +345,20 @@ src/
 >    co-sign transactions client-side. `LoanSet` already supports multi-sign
 >    via `xrpl.signLoanSetByCounterparty`.
 
-- **Authentication**: delegated to Auth0 via Universal Login. Passwords are
-  managed by Auth0 and never stored in this application. Session `sessionId`
-  is the Auth0 user's `sub` claim.
-- **Session routing**: `sessionId` always read from the httpOnly cookie,
-  never from a request body or query — `src/middleware.ts` gates every API
-  route and verifies the cookie's Auth0 origin via ID token validation.
+- **Authentication**: delegated to Auth0 via Universal Login (email-only
+  in the default config; social providers can be enabled in the Auth0
+  dashboard). Passwords are managed by Auth0 and never stored in this
+  application. The user's stable identity is the Auth0 `sub` claim,
+  persisted on `UserWallets.auth0Sub`.
+- **Session routing**: the Auth0 SDK reads identity from an encrypted
+  httpOnly cookie it manages — never from a request body or query.
+  `src/middleware.ts` gates every protected route via `auth0.getSession()`.
 - **CSRF**: mutating requests must carry an `Origin` matching the request
   host (enforced in `src/middleware.ts`). Server-side tools without `Origin`
   pass through, but they need a valid auth cookie anyway.
 - **Per-row authorization**: `/api/loan/[id]` and `/api/vault/[id]` scope
-  their DB lookup by `sessionId` so authenticated callers can't read other
-  users' loan / vault records by guessing an id.
+  their DB lookup by the caller's `UserWallets._id` so authenticated callers
+  can't read other users' loan / vault records by guessing an id.
 - **Server-side validation**: every amount / number / id is validated before
   being used in a tx. See `src/lib/validation.ts`.
 - **On-chain verification**: `assertTxSuccess(result, txType)` throws on
