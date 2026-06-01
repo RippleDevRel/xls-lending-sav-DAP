@@ -21,7 +21,8 @@ info:
     - **Content type** — `application/json` for all request/response bodies.
   version: 1.0.0
   license:
-    name: ISC
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
   contact:
     name: XLS-66 reference app
 
