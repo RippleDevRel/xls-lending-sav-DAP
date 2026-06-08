@@ -114,6 +114,7 @@ to bridge HTTP requests between transactions.
 | `Vault`          | User ↔ `vaultId` mapping + asset record + cached `totalDeposited` / `sharesMinted`. Refreshed from `vault_info` on read. |
 | `Loan`           | User ↔ `loanId` mapping + immutable loan terms (copied from the `LoanSet` payload at origination) + cached `paymentsRemaining` / `principalOutstanding` / `status`. |
 | `DepositHistory` | Audit trail of every `VaultDeposit` / `VaultWithdraw`, with tx hash, amount, type, timestamp. Used for PNL in the depositor view. |
+| `RateLimit`      | Fixed-window request counters (keyed per user or per IP) with a TTL index. Backs API rate limiting; documents are purged automatically once their window expires. |
 
 **MongoDB is never the source of truth for balances or state** — every
 protected route re-reads the ledger after a tx and after a page load. The DB
@@ -235,8 +236,11 @@ cookie is required. The caller's identity (`auth0Sub`) is resolved from the
 cookie by the SDK, never from the request body or query, so cross-session
 IDOR is impossible. Public exceptions (exact-match): `GET /auth/login`,
 `GET /auth/callback`, `GET /auth/logout`, `GET /api/openapi`,
-`GET /api/docs`. Mutating requests are additionally gated by a same-origin
-`Origin`-header check.
+`GET /api/docs`, `POST /api/csp-report`. Mutating requests are additionally
+gated by a same-origin `Origin`-header check. Every response carries a strict
+nonce-based **Content-Security-Policy** (`src/middleware.ts`), and the
+transaction and wallet-provisioning endpoints are **rate-limited**
+(`src/lib/rate-limit.ts`).
 
 ### Session & Auth
 
