@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getErrorMessage } from "@/lib/api-error";
 import { validateAmount } from "@/lib/validation";
 import { getUserWallets } from "@/lib/user-wallets";
 import { submitTransaction } from "@/lib/xrpl/vault";
@@ -54,6 +53,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ result: result.result });
   } catch (error) {
     console.error("Transfer error:", error);
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to complete transfer" }, { status: 500 });
   }
 }

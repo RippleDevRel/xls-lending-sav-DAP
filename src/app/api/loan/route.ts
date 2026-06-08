@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getErrorMessage } from "@/lib/api-error";
 import { validateAssetAmount, validateNumber } from "@/lib/validation";
 import { getUserWallets } from "@/lib/user-wallets";
 import { LoanModel } from "@/lib/db";
@@ -133,7 +132,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ loanId, result: result.result }, { status: 201 });
   } catch (error) {
     console.error("Loan creation error:", error);
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to create loan" }, { status: 500 });
   }
 }
 
@@ -196,6 +195,6 @@ export async function GET() {
     return NextResponse.json({ loans: synced });
   } catch (error) {
     console.error("Loan list error:", error);
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to list loans" }, { status: 500 });
   }
 }

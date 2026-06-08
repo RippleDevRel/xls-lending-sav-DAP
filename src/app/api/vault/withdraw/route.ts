@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getErrorMessage } from "@/lib/api-error";
 import { validateDrops } from "@/lib/validation";
 import { getUserWallets } from "@/lib/user-wallets";
 import { VaultModel, DepositHistoryModel } from "@/lib/db";
@@ -126,6 +125,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ result: result.result });
   } catch (error) {
     console.error("Vault withdraw error:", error);
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to withdraw from vault" }, { status: 500 });
   }
 }

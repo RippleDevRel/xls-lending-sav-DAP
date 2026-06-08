@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getErrorMessage } from "@/lib/api-error";
 import { UserWalletsModel, VaultModel } from "@/lib/db";
 import {
   buildVaultCreate,
@@ -116,7 +115,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ vault, result: result.result }, { status: 201 });
   } catch (error) {
     console.error("Vault creation error:", error);
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to create vault" }, { status: 500 });
   }
 }
 
@@ -148,6 +147,6 @@ export async function GET() {
     return NextResponse.json({ vaults: enriched });
   } catch (error) {
     console.error("Vault list error:", error);
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to list vaults" }, { status: 500 });
   }
 }

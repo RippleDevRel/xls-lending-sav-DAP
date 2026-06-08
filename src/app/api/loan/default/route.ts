@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getErrorMessage } from "@/lib/api-error";
 import { LoanModel } from "@/lib/db";
 import { buildLoanDelete, buildLoanManage, LoanManageFlags } from "@/lib/xrpl/loan";
 import { submitTransaction } from "@/lib/xrpl/vault";
@@ -35,6 +34,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ result: result.result });
   } catch (error) {
     console.error("Loan manage error:", error);
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to process loan action" }, { status: 500 });
   }
 }

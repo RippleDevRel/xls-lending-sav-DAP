@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getErrorMessage } from "@/lib/api-error";
 import { UserWalletsModel, VaultModel, LoanModel } from "@/lib/db";
 import { buildVaultDelete, submitTransaction, getVaultInfo } from "@/lib/xrpl/vault";
 import { buildLoanBrokerDelete, buildLoanBrokerCoverWithdraw } from "@/lib/xrpl/broker";
@@ -133,6 +132,6 @@ export async function POST() {
     return NextResponse.json({ result: result.result });
   } catch (error) {
     console.error("Vault delete error:", error);
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to delete vault" }, { status: 500 });
   }
 }

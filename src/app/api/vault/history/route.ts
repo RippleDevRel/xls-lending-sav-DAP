@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getErrorMessage } from "@/lib/api-error";
 import { DepositHistoryModel } from "@/lib/db";
 import { getUserWallets } from "@/lib/user-wallets";
 import { MPT_SCALE_MULTIPLIER } from "@/lib/constants";
@@ -52,7 +51,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Deposit history error:", error);
     return NextResponse.json(
-      { error: getErrorMessage(error) },
+      { error: "Failed to fetch deposit history" },
       { status: 500 }
     );
   }

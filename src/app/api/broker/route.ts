@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getErrorMessage } from "@/lib/api-error";
 import { UserWalletsModel } from "@/lib/db";
 import {
   buildLoanBrokerSet,
@@ -77,7 +76,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ loanBrokerId, result: result.result });
   } catch (error) {
     console.error("Broker creation error:", error);
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to create loan broker" }, { status: 500 });
   }
 }
 
@@ -128,6 +127,6 @@ export async function DELETE() {
     return NextResponse.json({ result: result.result });
   } catch (error) {
     console.error("Broker deletion error:", error);
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to delete loan broker" }, { status: 500 });
   }
 }
