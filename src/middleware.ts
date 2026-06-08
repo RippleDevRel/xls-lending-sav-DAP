@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
+import { buildCsp } from "@/lib/csp";
 
 /**
  * Public API endpoints reachable without an Auth0 session. Exact-match only.
@@ -9,11 +10,28 @@ import { auth0 } from "@/lib/auth0";
 const PUBLIC_API_PATHS = new Set([
   "/api/openapi",
   "/api/docs",
+  "/api/csp-report",
 ]);
 
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export async function middleware(request: NextRequest) {
+  // Per-request CSP nonce. Forwarded to the render via the `x-nonce` and
+  // `Content-Security-Policy` request headers (Next.js reads the latter to
+  // tag every inline script it emits) and echoed on the response for the
+  // browser. See src/lib/csp.ts for the policy.
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const csp = buildCsp(nonce, request.nextUrl.pathname);
+
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp);
+
+  const withCsp = (res: NextResponse) => {
+    res.headers.set("Content-Security-Policy", csp);
+    return res;
+  };
+
   // 1. Auth0 middleware runs first. It auto-mounts /auth/* routes and
   //    refreshes the session cookie. Its response carries Set-Cookie headers
   //    that we must propagate downstream.
@@ -22,7 +40,7 @@ export async function middleware(request: NextRequest) {
   // 2. Auth0-owned routes: return immediately. The OAuth callback uses PKCE
   //    + state, so we don't apply the same-origin CSRF check to them.
   if (request.nextUrl.pathname.startsWith("/auth")) {
-    return authRes;
+    return withCsp(authRes);
   }
 
   // 3. CSRF: same-origin enforcement on mutating requests. Browsers always
@@ -35,35 +53,43 @@ export async function middleware(request: NextRequest) {
     if (origin) {
       try {
         if (new URL(origin).host !== request.nextUrl.host) {
-          return NextResponse.json(
-            { error: "Cross-origin request blocked" },
-            { status: 403 }
+          return withCsp(
+            NextResponse.json(
+              { error: "Cross-origin request blocked" },
+              { status: 403 }
+            )
           );
         }
       } catch {
-        return NextResponse.json({ error: "Invalid Origin" }, { status: 403 });
+        return withCsp(
+          NextResponse.json({ error: "Invalid Origin" }, { status: 403 })
+        );
       }
     }
   }
 
-  // 4. Public endpoints bypass the session gate.
-  if (PUBLIC_API_PATHS.has(request.nextUrl.pathname)) {
-    return authRes;
+  // 4. Session gate. Public endpoints bypass it. Per-route handlers also call
+  //    `getUserWallets()` for defense in depth, but blocking here
+  //    short-circuits before any DB work.
+  if (!PUBLIC_API_PATHS.has(request.nextUrl.pathname)) {
+    const session = await auth0.getSession(request);
+    if (!session) {
+      if (request.nextUrl.pathname.startsWith("/api/")) {
+        return withCsp(
+          NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+        );
+      }
+      if (request.nextUrl.pathname.startsWith("/dashboard")) {
+        return withCsp(NextResponse.redirect(new URL("/", request.url)));
+      }
+    }
   }
 
-  // 5. Session gate. Per-route handlers also call `getUserWallets()` for
-  //    defense in depth, but blocking here short-circuits before any DB work.
-  const session = await auth0.getSession(request);
-  if (!session) {
-    if (request.nextUrl.pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    if (request.nextUrl.pathname.startsWith("/dashboard")) {
-      return NextResponse.redirect(new URL("/", request.url));
-    }
-  }
-
-  return authRes;
+  // 5. Pass-through: forward the nonce-bearing request headers to the render
+  //    and carry over the session cookies Auth0 just refreshed.
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
+  authRes.cookies.getAll().forEach((cookie) => res.cookies.set(cookie));
+  return withCsp(res);
 }
 
 export const config = {

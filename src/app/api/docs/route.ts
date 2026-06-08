@@ -1,10 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 /**
  * Renders a minimal Swagger UI for `/api/openapi`. Loaded from the
  * official CDN so we don't ship any UI dependency. Public — no auth.
+ *
+ * The CSP set in middleware uses `strict-dynamic`, so both <script> tags
+ * must carry the per-request nonce (read from the `x-nonce` request header)
+ * or the browser will refuse to run them.
  */
-export function GET() {
+export function GET(request: NextRequest) {
+  const nonce = request.headers.get("x-nonce") ?? "";
   const html = `<!doctype html>
 <html lang="en">
   <head>
@@ -16,8 +21,8 @@ export function GET() {
   </head>
   <body>
     <div id="ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin></script>
-    <script>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin nonce="${nonce}"></script>
+    <script nonce="${nonce}">
       window.addEventListener("load", () => {
         window.ui = SwaggerUIBundle({
           url: "/api/openapi",
