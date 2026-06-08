@@ -19,6 +19,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Static assets — never lint. Includes the vendored swagger-ui bundle,
+    // a 1.5MB minified file that OOMs the linter.
+    "public/**",
   ]),
 ]);
 
