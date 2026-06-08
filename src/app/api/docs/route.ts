@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * Renders a minimal Swagger UI for `/api/openapi`. Loaded from the
- * official CDN so we don't ship any UI dependency. Public — no auth.
+ * Renders a minimal Swagger UI for `/api/openapi`. Assets are self-hosted
+ * (served same-origin from /vendor/swagger-ui/, copied from the locked
+ * swagger-ui-dist version by scripts/copy-swagger.mjs) rather than pulled
+ * from a third-party CDN at runtime. Public — no auth.
  *
  * The CSP set in middleware uses `strict-dynamic`, so both <script> tags
  * must carry the per-request nonce (read from the `x-nonce` request header)
@@ -16,12 +18,12 @@ export function GET(request: NextRequest) {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XLS-66 Lending API — Docs</title>
-    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    <link rel="stylesheet" href="/vendor/swagger-ui/swagger-ui.css" />
     <style>body{margin:0}#ui{min-height:100vh}</style>
   </head>
   <body>
     <div id="ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin nonce="${nonce}"></script>
+    <script src="/vendor/swagger-ui/swagger-ui-bundle.js" nonce="${nonce}"></script>
     <script nonce="${nonce}">
       window.addEventListener("load", () => {
         window.ui = SwaggerUIBundle({

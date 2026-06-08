@@ -17,6 +17,10 @@
 /.next/
 /out/
 
+# vendored swagger-ui assets — regenerated from the locked swagger-ui-dist
+# version by the prebuild/predev hooks (scripts/copy-swagger.mjs).
+/public/vendor/swagger-ui/
+
 # production
 /build
 

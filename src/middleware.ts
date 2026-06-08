@@ -21,7 +21,7 @@ export async function middleware(request: NextRequest) {
   // tag every inline script it emits) and echoed on the response for the
   // browser. See src/lib/csp.ts for the policy.
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-  const csp = buildCsp(nonce, request.nextUrl.pathname);
+  const csp = buildCsp(nonce);
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
