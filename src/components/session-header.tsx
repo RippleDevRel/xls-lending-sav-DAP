@@ -136,7 +136,7 @@ export function SessionHeader() {
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2.5">
         <h1 className="text-base font-semibold tracking-tight">
-          XLS-66 & XLS-65
+          XLS-66 and XLS-65
         </h1>
         <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary">
           Devnet

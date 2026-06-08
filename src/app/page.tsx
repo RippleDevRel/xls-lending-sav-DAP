@@ -31,7 +31,7 @@ export default function Home() {
       {/* Top bar */}
       <header className="relative z-10 container mx-auto px-6 pt-6 max-w-5xl flex items-center justify-between">
         <span className="text-sm font-semibold tracking-tight">
-          XLS-66 & XLS-65 - Test App
+          XLS-66 and XLS-65 - Test App
         </span>
         <div className="flex items-center gap-3">
           <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
