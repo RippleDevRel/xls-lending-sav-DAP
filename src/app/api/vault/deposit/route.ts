@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateDrops } from "@/lib/validation";
 import { getUserWallets } from "@/lib/user-wallets";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { VaultModel, DepositHistoryModel } from "@/lib/db";
 import { buildVaultDeposit, submitTransaction } from "@/lib/xrpl/vault";
 import {
@@ -17,6 +18,8 @@ export async function POST(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const rl = await checkRateLimit(`tx:${session._id}`, 30, 60);
+    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
     const body = await request.json();
     const vaultId = typeof body.vaultId === "string" ? body.vaultId.trim() : null;
     if (!vaultId) {

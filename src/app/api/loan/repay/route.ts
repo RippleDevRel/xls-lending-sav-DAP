@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateAssetAmount } from "@/lib/validation";
 import { getUserWallets } from "@/lib/user-wallets";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { LoanModel } from "@/lib/db";
 import { buildLoanPay, getLoanInfo, LoanPayFlags } from "@/lib/xrpl/loan";
 import { submitTransaction } from "@/lib/xrpl/vault";
@@ -22,6 +23,8 @@ export async function POST(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const rl = await checkRateLimit(`tx:${session._id}`, 30, 60);
+    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
     const body = await request.json();
     const loanId = typeof body.loanId === "string" ? body.loanId.trim() : null;
     if (!loanId) {

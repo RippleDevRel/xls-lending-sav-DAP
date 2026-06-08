@@ -1,6 +1,7 @@
 import { auth0 } from "./auth0";
 import { connectDB, UserWalletsModel } from "./db";
 import { generateAndFundWallet } from "./xrpl/wallet";
+import { checkRateLimit, RateLimitError } from "./rate-limit";
 
 /**
  * Looks up the UserWallets document for the current Auth0 session by `sub`.
@@ -8,12 +9,16 @@ import { generateAndFundWallet } from "./xrpl/wallet";
  * wallets and inserts the document. Handles the first-login race by catching
  * the unique-index duplicate-key error.
  *
+ * `clientIp`, when provided, caps how often a single IP may trigger the
+ * (faucet-funded) provisioning path — existing users return early and are
+ * never rate-limited. Throws `RateLimitError` when the cap is hit.
+ *
  * Returns the full document (with seeds) — the route handler is responsible
  * for redacting before sending to the client.
  *
  * Returns null only if the Auth0 session itself is missing.
  */
-export async function getOrCreateUserWallets() {
+export async function getOrCreateUserWallets(clientIp?: string) {
   const session = await auth0.getSession();
   if (!session?.user) return null;
   const sub = session.user.sub;
@@ -24,6 +29,13 @@ export async function getOrCreateUserWallets() {
 
   const existing = await UserWalletsModel.findOne({ auth0Sub: sub });
   if (existing) return existing;
+
+  // New user — about to fund 4 wallets via the testnet faucet. Cap per IP to
+  // deter mass-signup faucet abuse.
+  if (clientIp) {
+    const rl = await checkRateLimit(`provision:${clientIp}`, 5, 600);
+    if (!rl.ok) throw new RateLimitError(rl.retryAfterSec);
+  }
 
   const roles = ["broker", "depositor", "borrower", "issuer"] as const;
   const wallets = await Promise.all(

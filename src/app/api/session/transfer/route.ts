@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateAmount } from "@/lib/validation";
 import { getUserWallets } from "@/lib/user-wallets";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { submitTransaction } from "@/lib/xrpl/vault";
 import { getRoleWallet, buildAmountField, hasIssuedToken } from "@/lib/xrpl/helpers";
 import { DROPS_PER_XRP } from "@/lib/constants";
@@ -12,6 +13,8 @@ export async function POST(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const rl = await checkRateLimit(`tx:${session._id}`, 30, 60);
+    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
     const body = await request.json();
     const from = body.from as WalletInfo["role"];
     const to = body.to as WalletInfo["role"];

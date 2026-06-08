@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateAssetAmount, validateNumber } from "@/lib/validation";
 import { getUserWallets } from "@/lib/user-wallets";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { LoanModel } from "@/lib/db";
 import { buildLoanSet, signAndSubmitLoanSet, getLoanInfo } from "@/lib/xrpl/loan";
 import {
@@ -33,6 +34,8 @@ export async function POST(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const rl = await checkRateLimit(`tx:${session._id}`, 30, 60);
+    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
     if (!session.loanBrokerId) {
       return NextResponse.json({ error: "No broker registered" }, { status: 404 });
     }

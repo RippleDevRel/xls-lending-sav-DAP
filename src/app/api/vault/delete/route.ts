@@ -10,6 +10,7 @@ import {
 } from "@/lib/xrpl/loan";
 import { getRoleWallet, buildAmountField, hasIssuedToken } from "@/lib/xrpl/helpers";
 import { getUserWallets } from "@/lib/user-wallets";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 /**
  * Full teardown sequence required by XLS-66 / XLS-65:
@@ -23,6 +24,8 @@ export async function POST() {
     if (!session || !session.vaultId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const rl = await checkRateLimit(`tx:${session._id}`, 30, 60);
+    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
 
     const brokerWallet = getRoleWallet(session, "broker");
     const borrowerWallet = (() => {
