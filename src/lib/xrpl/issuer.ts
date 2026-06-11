@@ -87,12 +87,16 @@ export async function setupMPT(
 ): Promise<{ mptIssuanceId: string }> {
   const issuerAddress = issuerWallet.classicAddress;
 
-  // XLS-89 compressed metadata keys: t=ticker, n=name, d=desc, ac=asset-class.
+  // XLS-89 compressed metadata keys: t=ticker, n=name, d=desc, ac=asset-class,
+  // as=asset-subclass, in=issuer-name. A test stablecoin maps to the schema's
+  // rwa class with the stablecoin subclass (the valid enum values).
   const metadata = {
     t: DEMO_TOKEN_TICKER,
     n: DEMO_TOKEN_NAME,
     d: DEMO_TOKEN_DESCRIPTION,
-    ac: "stablecoin",
+    ac: "rwa",
+    as: "stablecoin",
+    in: "XLS-66 Demo Issuer",
   };
   const metadataHex = Buffer.from(JSON.stringify(metadata)).toString("hex").toUpperCase();
 

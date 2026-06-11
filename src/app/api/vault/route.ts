@@ -16,6 +16,11 @@ import {
 import { validateDrops, validateAmount, sanitizeString } from "@/lib/validation";
 import { getUserWallets } from "@/lib/user-wallets";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
+import {
+  MPT_ASSET_CLASSES,
+  MPT_ASSET_SUBCLASSES,
+  MPT_TICKER_RE,
+} from "@/lib/xrpl/mpt-metadata";
 
 export async function POST(request: NextRequest) {
   try {
@@ -82,15 +87,64 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (raw.shareMetadata) {
-      const sm: Record<string, string> = {};
-      if (raw.shareMetadata.ticker) sm.ticker = sanitizeString(raw.shareMetadata.ticker, 6);
-      if (raw.shareMetadata.name) sm.name = sanitizeString(raw.shareMetadata.name, 64);
-      if (raw.shareMetadata.description) sm.description = sanitizeString(raw.shareMetadata.description, 256);
-      if (raw.shareMetadata.icon) sm.icon = sanitizeString(raw.shareMetadata.icon, 128);
-      if (raw.shareMetadata.issuerName) sm.issuerName = sanitizeString(raw.shareMetadata.issuerName, 64);
-      if (Object.keys(sm).length > 0) vaultOptions.shareMetadata = sm;
+    // Share token metadata. The MPT schema requires ticker, name, icon,
+    // asset_class and issuer_name; we make ticker, name, asset_class and
+    // issuer_name mandatory (icon/description stay optional for the demo) and
+    // validate server-side regardless of the client.
+    const rawSm = raw.shareMetadata;
+    if (!rawSm) {
+      return NextResponse.json(
+        { error: "Share token metadata is required" },
+        { status: 400 }
+      );
     }
+    const ticker = sanitizeString(rawSm.ticker ?? "", 6).toUpperCase();
+    const shareName = sanitizeString(rawSm.name ?? "", 64);
+    const issuerName = sanitizeString(rawSm.issuerName ?? "", 64);
+    const shareAssetClass = sanitizeString(rawSm.assetClass ?? "", 16);
+    const shareAssetSubclass = sanitizeString(rawSm.assetSubclass ?? "", 16);
+
+    if (!MPT_TICKER_RE.test(ticker)) {
+      return NextResponse.json(
+        { error: "Ticker must be 1-6 uppercase letters or digits" },
+        { status: 400 }
+      );
+    }
+    if (!shareName) {
+      return NextResponse.json(
+        { error: "Share token name is required" },
+        { status: 400 }
+      );
+    }
+    if (!issuerName) {
+      return NextResponse.json(
+        { error: "Issuer name is required" },
+        { status: 400 }
+      );
+    }
+    if (!(MPT_ASSET_CLASSES as readonly string[]).includes(shareAssetClass)) {
+      return NextResponse.json({ error: "Invalid asset class" }, { status: 400 });
+    }
+    if (
+      shareAssetClass === "rwa" &&
+      !(MPT_ASSET_SUBCLASSES as readonly string[]).includes(shareAssetSubclass)
+    ) {
+      return NextResponse.json(
+        { error: "Asset subclass is required for real-world assets" },
+        { status: 400 }
+      );
+    }
+
+    const sm: Record<string, string> = {
+      ticker,
+      name: shareName,
+      issuerName,
+      assetClass: shareAssetClass,
+    };
+    if (shareAssetClass === "rwa") sm.assetSubclass = shareAssetSubclass;
+    if (rawSm.description) sm.description = sanitizeString(rawSm.description, 256);
+    if (rawSm.icon) sm.icon = sanitizeString(rawSm.icon, 128);
+    vaultOptions.shareMetadata = sm;
 
     const tx = buildVaultCreate(brokerWallet.classicAddress, vaultOptions);
     const result = await submitTransaction(brokerWallet, tx);

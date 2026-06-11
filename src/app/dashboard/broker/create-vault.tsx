@@ -21,6 +21,11 @@ import {
 } from "@/components/ui/tooltip";
 import { motion } from "motion/react";
 import { createVaultAndBroker } from "./actions";
+import {
+  MPT_ASSET_CLASSES,
+  MPT_ASSET_SUBCLASSES,
+  MPT_TICKER_RE,
+} from "@/lib/xrpl/mpt-metadata";
 
 interface CreateVaultProps {
   onCreated: (vaultId: string, brokerId: string, txHash?: string) => void;
@@ -63,6 +68,18 @@ export function CreateVault({
   const [shareDesc, setShareDesc] = useState("");
   const [shareIcon, setShareIcon] = useState("");
   const [shareIssuerName, setShareIssuerName] = useState("");
+  const [shareAssetClass, setShareAssetClass] = useState("defi");
+  const [shareAssetSubclass, setShareAssetSubclass] = useState("");
+
+  // Share token metadata required by the MPT schema: ticker, name, issuer
+  // name, asset class (+ asset subclass when the class is "rwa"). Icon and
+  // description stay optional.
+  const shareMetaValid =
+    MPT_TICKER_RE.test(shareTicker.trim().toUpperCase()) &&
+    shareName.trim() !== "" &&
+    shareIssuerName.trim() !== "" &&
+    shareAssetClass !== "" &&
+    (shareAssetClass !== "rwa" || shareAssetSubclass !== "");
 
   async function handleCreate() {
     setLoading(true);
@@ -86,6 +103,8 @@ export function CreateVault({
           description: shareDesc,
           icon: shareIcon,
           issuerName: shareIssuerName,
+          assetClass: shareAssetClass,
+          assetSubclass: shareAssetSubclass,
         },
         managementFee,
         debtMaximum,
@@ -260,26 +279,36 @@ export function CreateVault({
               <p className="text-sm font-medium">
                 Share Token Metadata{" "}
                 <span className="font-normal text-muted-foreground">
-                  (optional)
+                  (required)
                 </span>
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                MPToken metadata for the vault&apos;s share tokens.
+                MPToken metadata for the vault&apos;s share tokens. Populating
+                these lets wallets and explorers display the token correctly.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="share-ticker">Ticker</Label>
+                <Label htmlFor="share-ticker">
+                  Ticker <span className="text-destructive">*</span>
+                </Label>
                 <Input
                   id="share-ticker"
                   placeholder="e.g. SHARE1"
                   value={shareTicker}
-                  onChange={(e) => setShareTicker(e.target.value)}
-                  maxLength={12}
+                  onChange={(e) =>
+                    setShareTicker(e.target.value.toUpperCase())
+                  }
+                  maxLength={6}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Uppercase A–Z and digits, up to 6 characters.
+                </p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="share-name">Name</Label>
+                <Label htmlFor="share-name">
+                  Name <span className="text-destructive">*</span>
+                </Label>
                 <Input
                   id="share-name"
                   placeholder="e.g. Vault Shares"
@@ -289,29 +318,11 @@ export function CreateVault({
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="share-desc">Description</Label>
-              <Input
-                id="share-desc"
-                placeholder="e.g. Proportional ownership shares of the vault"
-                value={shareDesc}
-                onChange={(e) => setShareDesc(e.target.value)}
-                maxLength={256}
-              />
-            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="share-icon">Icon URL</Label>
-                <Input
-                  id="share-icon"
-                  placeholder="e.g. example.com/icon.png"
-                  value={shareIcon}
-                  onChange={(e) => setShareIcon(e.target.value)}
-                  maxLength={128}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="share-issuer">Issuer name</Label>
+                <Label htmlFor="share-issuer">
+                  Issuer name <span className="text-destructive">*</span>
+                </Label>
                 <Input
                   id="share-issuer"
                   placeholder="e.g. MyBank"
@@ -320,6 +331,76 @@ export function CreateVault({
                   maxLength={64}
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="share-asset-class">
+                  Asset class <span className="text-destructive">*</span>
+                </Label>
+                <select
+                  id="share-asset-class"
+                  value={shareAssetClass}
+                  onChange={(e) => setShareAssetClass(e.target.value)}
+                  className="h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  {MPT_ASSET_CLASSES.map((ac) => (
+                    <option key={ac} value={ac}>
+                      {ac}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {shareAssetClass === "rwa" && (
+              <div className="space-y-2">
+                <Label htmlFor="share-asset-subclass">
+                  Asset subclass <span className="text-destructive">*</span>
+                </Label>
+                <select
+                  id="share-asset-subclass"
+                  value={shareAssetSubclass}
+                  onChange={(e) => setShareAssetSubclass(e.target.value)}
+                  className="h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  <option value="">Select a subclass…</option>
+                  {MPT_ASSET_SUBCLASSES.map((sub) => (
+                    <option key={sub} value={sub}>
+                      {sub}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Required when the asset class is rwa.
+                </p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="share-desc">
+                Description{" "}
+                <span className="font-normal text-muted-foreground">
+                  (optional)
+                </span>
+              </Label>
+              <Input
+                id="share-desc"
+                placeholder="e.g. Proportional ownership shares of the vault"
+                value={shareDesc}
+                onChange={(e) => setShareDesc(e.target.value)}
+                maxLength={256}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="share-icon">
+                Icon URL{" "}
+                <span className="font-normal text-muted-foreground">
+                  (optional)
+                </span>
+              </Label>
+              <Input
+                id="share-icon"
+                placeholder="e.g. example.com/icon.png"
+                value={shareIcon}
+                onChange={(e) => setShareIcon(e.target.value)}
+                maxLength={128}
+              />
             </div>
           </div>
 
@@ -472,7 +553,7 @@ export function CreateVault({
             shimmerColor="hsl(213, 100%, 60%)"
             shimmerSize="0.1em"
             background="hsl(213, 100%, 40%)"
-            disabled={loading}
+            disabled={loading || !shareMetaValid}
             onClick={handleCreate}
           >
             {loading ? (

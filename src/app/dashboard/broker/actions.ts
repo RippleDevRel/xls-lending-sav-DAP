@@ -23,6 +23,8 @@ export interface CreateVaultInputs {
     description: string;
     icon: string;
     issuerName: string;
+    assetClass: string;
+    assetSubclass: string;
   };
   managementFee: string;
   debtMaximum: string;
@@ -54,15 +56,15 @@ export async function createVaultAndBroker(input: CreateVaultInputs): Promise<Cr
         : input.maxCap;
   }
   const sm = input.shareMetadata;
-  if (sm.ticker || sm.name || sm.description || sm.icon || sm.issuerName) {
-    vaultOptions.shareMetadata = {
-      ...(sm.ticker.trim() && { ticker: sm.ticker.trim() }),
-      ...(sm.name.trim() && { name: sm.name.trim() }),
-      ...(sm.description.trim() && { description: sm.description.trim() }),
-      ...(sm.icon.trim() && { icon: sm.icon.trim() }),
-      ...(sm.issuerName.trim() && { issuerName: sm.issuerName.trim() }),
-    };
-  }
+  vaultOptions.shareMetadata = {
+    ticker: sm.ticker.trim(),
+    name: sm.name.trim(),
+    issuerName: sm.issuerName.trim(),
+    assetClass: sm.assetClass,
+    ...(sm.assetClass === "rwa" && { assetSubclass: sm.assetSubclass }),
+    ...(sm.description.trim() && { description: sm.description.trim() }),
+    ...(sm.icon.trim() && { icon: sm.icon.trim() }),
+  };
 
   const vaultRes = await fetch("/api/vault", {
     method: "POST",

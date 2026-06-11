@@ -21,13 +21,15 @@ export interface VaultCreateOptions {
   assetsMaximum?: string;
   /** tfVaultShareNonTransferable — shares cannot be transferred to another account. */
   nonTransferableShares?: boolean;
-  /** XLS-89 compressed metadata for the share MPT (`t`, `n`, `d`, `i`, `in`). */
+  /** XLS-89 compressed metadata for the share MPT (`t`, `n`, `d`, `i`, `ac`, `as`, `in`). */
   shareMetadata?: {
     ticker?: string;
     name?: string;
     description?: string;
     icon?: string;
     issuerName?: string;
+    assetClass?: string;
+    assetSubclass?: string;
   };
 }
 
@@ -75,7 +77,8 @@ export function buildVaultCreate(
     if (meta.name) mptMeta.n = meta.name;
     if (meta.description) mptMeta.d = meta.description;
     if (meta.icon) mptMeta.i = meta.icon;
-    mptMeta.ac = "lp-token";
+    mptMeta.ac = meta.assetClass || "defi";
+    if (meta.assetSubclass) mptMeta.as = meta.assetSubclass;
     mptMeta.in = meta.issuerName || "Vault Owner";
     tx.MPTokenMetadata = Buffer.from(JSON.stringify(mptMeta)).toString("hex").toUpperCase();
   }
