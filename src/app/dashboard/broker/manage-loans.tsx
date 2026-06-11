@@ -11,18 +11,19 @@ import { LoanStatusBadge } from "@/components/loan-status-badge";
 import { AmountDisplay } from "@/components/amount-display";
 import { Button } from "@/components/ui/button";
 import { ExternalLink, Trash2, CheckCircle } from "lucide-react";
-import { explorerObjectUrl } from "@/lib/explorer";
+import { explorerVaultUrl } from "@/lib/explorer";
 import { DROPS_PER_XRP } from "@/lib/constants";
 import type { LoanState } from "@/types/loan";
 
 interface ManageLoansProps {
   loans: LoanState[];
   token?: string;
+  vaultId: string;
   onUpdate: () => void;
   onStatus: (type: "success" | "error" | "pending", message: string, txHash?: string) => void;
 }
 
-export function ManageLoans({ loans, token, onUpdate, onStatus }: ManageLoansProps) {
+export function ManageLoans({ loans, token, vaultId, onUpdate, onStatus }: ManageLoansProps) {
   const unit = token || "XRP";
   const isToken = !!token;
   async function handleDefault(loanId: string) {
@@ -104,7 +105,7 @@ export function ManageLoans({ loans, token, onUpdate, onStatus }: ManageLoansPro
                         <LoanStatusBadge status={loan.status} />
                       )}
                       <a
-                        href={explorerObjectUrl(loan.loanId)}
+                        href={explorerVaultUrl(vaultId)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-muted-foreground hover:text-primary transition-colors"

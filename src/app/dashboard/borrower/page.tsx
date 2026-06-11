@@ -68,6 +68,10 @@ export default function BorrowerPage() {
     );
   }
 
+  // Past the no-vault guard above, so vaultId is defined. Loans link to their
+  // associated vault on the explorer (there is no direct loan-object page).
+  const vaultId = session.vaultId;
+
   // Vault exists but no loans
   if (loans.length === 0) {
     return (
@@ -129,6 +133,7 @@ export default function BorrowerPage() {
               <RepaymentForm
                 loan={loan}
                 token={session.issuedToken ? "TUSD" : undefined}
+                vaultId={vaultId}
                 onSuccess={(msg, txHash) => {
                   fetchLoans();
                   setStatus({ type: "success", message: msg, txHash });
@@ -150,7 +155,7 @@ export default function BorrowerPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2 }}
         >
-          <LoanHistory loans={pastLoans} token={session.issuedToken ? "TUSD" : undefined} />
+          <LoanHistory loans={pastLoans} token={session.issuedToken ? "TUSD" : undefined} vaultId={vaultId} />
         </motion.div>
       )}
     </div>

@@ -23,7 +23,7 @@ import {
   Coins,
   TrendingUp,
 } from "lucide-react";
-import { explorerObjectUrl } from "@/lib/explorer";
+import { explorerVaultUrl } from "@/lib/explorer";
 import { DROPS_PER_XRP } from "@/lib/constants";
 import { MPTokenIssuanceCreateFlags } from "xrpl";
 
@@ -167,7 +167,7 @@ export default function DepositorPage() {
               </CardTitle>
               <div className="flex items-center gap-2">
                 <a
-                  href={explorerObjectUrl(vaultId)}
+                  href={explorerVaultUrl(vaultId)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"

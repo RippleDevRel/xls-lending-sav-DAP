@@ -22,7 +22,7 @@ import {
   TrendingUp,
   Tag,
 } from "lucide-react";
-import { explorerObjectUrl, explorerMptUrl } from "@/lib/explorer";
+import { explorerVaultUrl, explorerMptUrl } from "@/lib/explorer";
 import { MPTokenIssuanceCreateFlags } from "xrpl";
 
 interface VaultDetailsProps {
@@ -178,7 +178,7 @@ export function VaultDetails({ vaultId, loanBrokerId, onDeleted }: VaultDetailsP
           </div>
           <div className="flex items-center gap-2">
             <a
-              href={explorerObjectUrl(vaultId)}
+              href={explorerVaultUrl(vaultId)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"

@@ -216,6 +216,7 @@ export default function BrokerPage() {
                 <ManageLoans
                   loans={loans}
                   token={session.issuedToken ? "TUSD" : undefined}
+                  vaultId={vaultId}
                   onUpdate={fetchLoans}
                   onStatus={(type, message, txHash) =>
                     setStatus({ type, message, txHash })

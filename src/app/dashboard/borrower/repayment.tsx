@@ -14,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { AmountDisplay } from "@/components/amount-display";
 import { LoanStatusBadge } from "@/components/loan-status-badge";
 import { Loader2, ExternalLink, Calendar, Clock, CheckCircle, Trash2, AlertTriangle, XCircle } from "lucide-react";
-import { explorerObjectUrl } from "@/lib/explorer";
+import { explorerVaultUrl } from "@/lib/explorer";
 import { DROPS_PER_XRP, RIPPLE_EPOCH_OFFSET } from "@/lib/constants";
 import { earlyFullPayment, latePayment } from "@/lib/loan-math";
 import { LoanSetFlags } from "xrpl";
@@ -23,6 +23,7 @@ import type { LoanState } from "@/types/loan";
 interface RepaymentFormProps {
   loan: LoanState;
   token?: string;
+  vaultId: string;
   onSuccess: (message: string, txHash?: string) => void;
   onError: (message: string) => void;
   onPending: (message: string) => void;
@@ -61,6 +62,7 @@ interface OnChainLoan {
 export function RepaymentForm({
   loan,
   token,
+  vaultId,
   onSuccess,
   onError,
   onPending,
@@ -307,7 +309,7 @@ export function RepaymentForm({
             <div className="flex items-center gap-2">
               <LoanStatusBadge status="repaid" />
               <a
-                href={explorerObjectUrl(loan.loanId)}
+                href={explorerVaultUrl(vaultId)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-muted-foreground hover:text-primary transition-colors"
@@ -382,7 +384,7 @@ export function RepaymentForm({
           <div className="flex items-center gap-2">
             <LoanStatusBadge status={loan.status} />
             <a
-              href={explorerObjectUrl(loan.loanId)}
+              href={explorerVaultUrl(vaultId)}
               target="_blank"
               rel="noopener noreferrer"
               className="text-muted-foreground hover:text-primary transition-colors"

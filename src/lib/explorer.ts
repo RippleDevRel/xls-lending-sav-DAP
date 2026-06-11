@@ -8,8 +8,8 @@ export function explorerTransactionUrl(hash: string) {
   return `${EXPLORER_BASE}/transactions/${hash}`;
 }
 
-export function explorerObjectUrl(id: string) {
-  return `${EXPLORER_BASE}/object/${id}`;
+export function explorerVaultUrl(vaultId: string) {
+  return `${EXPLORER_BASE}/vault/${vaultId}`;
 }
 
 export function explorerMptUrl(mptIssuanceId: string) {

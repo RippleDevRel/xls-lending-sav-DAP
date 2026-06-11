@@ -8,10 +8,18 @@ import {
 import { AmountDisplay } from "@/components/amount-display";
 import { LoanStatusBadge } from "@/components/loan-status-badge";
 import { ExternalLink } from "lucide-react";
-import { explorerObjectUrl } from "@/lib/explorer";
+import { explorerVaultUrl } from "@/lib/explorer";
 import type { LoanState } from "@/types/loan";
 
-export function LoanHistory({ loans, token }: { loans: LoanState[]; token?: string }) {
+export function LoanHistory({
+  loans,
+  token,
+  vaultId,
+}: {
+  loans: LoanState[];
+  token?: string;
+  vaultId: string;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -36,7 +44,7 @@ export function LoanHistory({ loans, token }: { loans: LoanState[]; token?: stri
                   />
                   <LoanStatusBadge status={loan.status} />
                   <a
-                    href={explorerObjectUrl(loan.loanId)}
+                    href={explorerVaultUrl(vaultId)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-muted-foreground hover:text-primary transition-colors"
