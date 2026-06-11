@@ -23,6 +23,14 @@ export const tenthBpsToPercent = (tenthBps: number) => tenthBps / 1000;
 export const DEMO_TOKEN_TICKER = "TUSD";
 export const DEMO_TOKEN_NAME = "Test USD";
 export const DEMO_TOKEN_DESCRIPTION = "Test stablecoin for demo";
+/** Fallback MPT `issuer_name` when none is supplied (auto-issued demo token,
+ *  or a vault share whose issuer name is somehow missing). */
+export const DEFAULT_ISSUER_NAME = "DAP-demoapp";
+/** Fallback MPT `icon` (i) — REQUIRED by the metadata schema, so we always
+ *  populate it. Self-hosted app icon; rebrand via NEXT_PUBLIC_SITE_URL. */
+export const DEFAULT_TOKEN_ICON = `${(
+  process.env.NEXT_PUBLIC_SITE_URL || "https://lending.xls-demo.com"
+).replace(/\/$/, "")}/favicon.svg`;
 /** Human units seeded to each role on IOU/MPT vault setup. */
 export const DEMO_TOKEN_DISTRIBUTION = "10000";
 /** IOU trust-line ceiling set on broker/depositor/borrower wallets. */

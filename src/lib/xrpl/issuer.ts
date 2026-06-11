@@ -11,6 +11,8 @@ import {
   DEMO_TOKEN_TICKER,
   DEMO_TOKEN_NAME,
   DEMO_TOKEN_DESCRIPTION,
+  DEFAULT_ISSUER_NAME,
+  DEFAULT_TOKEN_ICON,
   DEMO_IOU_TRUST_LIMIT,
   DEMO_MPT_MAXIMUM_AMOUNT,
   MPT_ASSET_SCALE,
@@ -87,16 +89,17 @@ export async function setupMPT(
 ): Promise<{ mptIssuanceId: string }> {
   const issuerAddress = issuerWallet.classicAddress;
 
-  // XLS-89 compressed metadata keys: t=ticker, n=name, d=desc, ac=asset-class,
+  // Compressed metadata keys: t=ticker, n=name, d=desc, i=icon, ac=asset-class,
   // as=asset-subclass, in=issuer-name. A test stablecoin maps to the schema's
   // rwa class with the stablecoin subclass (the valid enum values).
   const metadata = {
     t: DEMO_TOKEN_TICKER,
     n: DEMO_TOKEN_NAME,
     d: DEMO_TOKEN_DESCRIPTION,
+    i: DEFAULT_TOKEN_ICON,
     ac: "rwa",
     as: "stablecoin",
-    in: "XLS-66 Demo Issuer",
+    in: DEFAULT_ISSUER_NAME,
   };
   const metadataHex = Buffer.from(JSON.stringify(metadata)).toString("hex").toUpperCase();
 

@@ -5,6 +5,7 @@
 import { Wallet, VaultCreateFlags } from "xrpl";
 import { getXrplClient } from "./client";
 import { assertTxSuccess } from "./helpers";
+import { DEFAULT_ISSUER_NAME, DEFAULT_TOKEN_ICON } from "@/lib/constants";
 
 export interface VaultAsset {
   type: "XRP" | "IOU" | "MPT";
@@ -76,10 +77,10 @@ export function buildVaultCreate(
     if (meta.ticker) mptMeta.t = meta.ticker.toUpperCase();
     if (meta.name) mptMeta.n = meta.name;
     if (meta.description) mptMeta.d = meta.description;
-    if (meta.icon) mptMeta.i = meta.icon;
+    mptMeta.i = meta.icon || DEFAULT_TOKEN_ICON;
     mptMeta.ac = meta.assetClass || "defi";
     if (meta.assetSubclass) mptMeta.as = meta.assetSubclass;
-    mptMeta.in = meta.issuerName || "Vault Owner";
+    mptMeta.in = meta.issuerName || DEFAULT_ISSUER_NAME;
     tx.MPTokenMetadata = Buffer.from(JSON.stringify(mptMeta)).toString("hex").toUpperCase();
   }
 
